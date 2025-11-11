@@ -19,7 +19,9 @@ This harness provides a simple, configurable interface to:
   - Currently implemented: Claude Sonnet 4.5
   - Easy to add: OpenAI GPT, other Claude models, etc.
 - **Configurable Verifier**: Pluggable verification system
-  - Currently implemented: Word Similarity (TF-IDF + Cosine Similarity)
+  - Currently implemented:
+    - Simple Text Verifier (Word Overlap - lightweight, no sklearn required)
+    - Word Similarity (TF-IDF + Cosine Similarity - requires sklearn)
   - Framework ready for: LLM-based verifiers, semantic similarity, etc.
 - **Web Interface**: Clean, responsive UI for configuration and results visualization
 - **Batch Evaluation**: Evaluate multiple questions in a single run
@@ -59,6 +61,8 @@ TruthfulQAHarness/
 
 - Python 3.8 or higher
 - Anthropic API key (for Claude)
+
+**🔵 Chromebook/Crostini Users**: See [CHROMEBOOK-SETUP.md](CHROMEBOOK-SETUP.md) for a lightweight installation that skips sklearn.
 
 ### Setup
 
