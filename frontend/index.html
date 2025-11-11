@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TruthfulQA Evaluation Harness</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TruthfulQA Evaluation Harness</h1>
+            <p class="subtitle">Evaluate LLM truthfulness using the TruthfulQA dataset</p>
+        </header>
+
+        <div class="config-panel">
+            <h2>Configuration</h2>
+
+            <div class="config-section">
+                <h3>LLM Provider</h3>
+                <div class="form-group">
+                    <label for="llm-provider">Provider:</label>
+                    <select id="llm-provider">
+                        <option value="claude" selected>Claude</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="llm-model">Model:</label>
+                    <input type="text" id="llm-model" value="claude-sonnet-4-5-20250929" placeholder="Model name">
+                </div>
+                <div class="form-group">
+                    <label for="max-tokens">Max Tokens:</label>
+                    <input type="number" id="max-tokens" value="1024" min="1" max="4096">
+                </div>
+                <div class="form-group">
+                    <label for="temperature">Temperature:</label>
+                    <input type="number" id="temperature" value="1.0" min="0" max="2" step="0.1">
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>Verifier</h3>
+                <div class="form-group">
+                    <label for="verifier-type">Type:</label>
+                    <select id="verifier-type">
+                        <option value="word_similarity" selected>Word Similarity (TF-IDF + Cosine)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>Dataset Sampling</h3>
+                <div class="form-group">
+                    <label for="sample-size">Sample Size:</label>
+                    <input type="number" id="sample-size" value="10" min="1" max="100">
+                </div>
+                <div class="form-group">
+                    <label for="random-seed">Random Seed (optional):</label>
+                    <input type="number" id="random-seed" placeholder="Leave empty for random">
+                </div>
+            </div>
+        </div>
+
+        <div class="action-panel">
+            <button id="load-sample-btn" class="btn btn-primary">Load Sample Questions</button>
+            <button id="evaluate-batch-btn" class="btn btn-success" disabled>Evaluate Batch</button>
+            <div class="dataset-info" id="dataset-info"></div>
+        </div>
+
+        <div class="questions-panel" id="questions-panel" style="display: none;">
+            <h2>Loaded Questions</h2>
+            <div id="questions-list"></div>
+        </div>
+
+        <div class="results-panel" id="results-panel" style="display: none;">
+            <h2>Evaluation Results</h2>
+
+            <div class="summary-card" id="summary-card"></div>
+
+            <div class="results-list" id="results-list"></div>
+        </div>
+
+        <div class="loading-overlay" id="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p>Evaluating...</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
