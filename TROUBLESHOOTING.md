@@ -37,6 +37,27 @@ pip uninstall datasets huggingface-hub -y
 pip install datasets>=2.18.0 huggingface-hub>=0.21.0
 ```
 
+### Client.__init__() got an unexpected keyword argument 'proxies'
+
+**Problem**: Outdated `anthropic` package version. The API changed significantly after version 0.7.x.
+
+**Solution**:
+```bash
+# On Windows
+venv\Scripts\activate
+pip install --upgrade anthropic
+
+# On Linux/Mac
+source venv/bin/activate
+pip install --upgrade anthropic
+```
+
+**Verify the fix**:
+```bash
+python -c "import anthropic; print(f'Anthropic version: {anthropic.__version__}')"
+# Should show version 0.34.0 or higher
+```
+
 ### scikit-learn compilation fails (Chromebook/ARM systems)
 
 **Problem**: sklearn requires compilation which may fail on resource-constrained systems.

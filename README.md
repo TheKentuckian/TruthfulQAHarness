@@ -303,6 +303,11 @@ For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 pip install --upgrade datasets huggingface-hub
 ```
 
+**Client.__init__() got unexpected keyword 'proxies'**
+```bash
+pip install --upgrade anthropic
+```
+
 **scikit-learn won't compile (Chromebook)**
 ```bash
 ./setup-chromebook.sh  # Use Simple Text Verifier instead
