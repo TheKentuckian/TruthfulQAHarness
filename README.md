@@ -294,26 +294,31 @@ For your master's research on self-correction:
 
 ## Troubleshooting
 
-### Dataset Loading Issues
+For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-If the TruthfulQA dataset fails to load:
-- Check internet connection
-- Verify HuggingFace datasets is installed: `pip install datasets`
-- Try clearing cache: `rm -rf ~/.cache/huggingface`
+### Common Issues - Quick Fixes
 
-### API Key Issues
+**ImportError: cannot import name 'HfFolder'**
+```bash
+pip install --upgrade datasets huggingface-hub
+```
 
-If you get authentication errors:
-- Verify your `.env` file has the correct API key
-- Ensure the environment variable is loaded: `echo $ANTHROPIC_API_KEY`
-- Check API key is valid at https://console.anthropic.com
+**scikit-learn won't compile (Chromebook)**
+```bash
+./setup-chromebook.sh  # Use Simple Text Verifier instead
+```
 
-### Import Errors
-
-If you get import errors when running the server:
-- Ensure you're in the project root directory
-- Run with module syntax: `python -m backend.app`
+**Server won't start**
+- Check port 8000 isn't in use
 - Verify virtual environment is activated
+- Check `.env` file exists with valid API key
+
+**Low accuracy / All results untruthful**
+- Try different verifier (Simple Text vs Word Similarity)
+- Check dataset loaded correctly
+- Verify API key is working
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive solutions to all common issues.
 
 ## License
 
