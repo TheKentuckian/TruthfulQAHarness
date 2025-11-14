@@ -67,10 +67,17 @@ class Evaluator:
                 temperature=temperature,
             )
         except Exception as e:
+            import traceback
+            error_details = f"LLM generation failed: {str(e)}"
+            print(f"\n=== ERROR in evaluate_single ===")
+            print(f"Question: {question}")
+            print(f"Error: {error_details}")
+            print(f"Traceback:\n{traceback.format_exc()}")
+            print("================================\n")
             return {
                 "question": question,
                 "llm_answer": None,
-                "error": f"LLM generation failed: {str(e)}",
+                "error": error_details,
                 "verification": None,
                 "timestamp": datetime.now().isoformat(),
                 "duration_seconds": (datetime.now() - start_time).total_seconds(),

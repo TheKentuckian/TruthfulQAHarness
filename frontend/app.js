@@ -234,6 +234,11 @@ function createResultCard(result, index) {
         <div class="result-answer">
             <div class="result-answer-label">LLM Answer:</div>
             <div class="result-answer-text">${escapeHtml(result.llm_answer || 'No answer generated')}</div>
+            ${result.error ? `
+                <div style="margin-top: 10px; padding: 10px; background: #fed7d7; border-left: 4px solid #f56565; border-radius: 4px;">
+                    <strong style="color: #742a2a;">Error:</strong> ${escapeHtml(result.error)}
+                </div>
+            ` : ''}
         </div>
 
         ${verification ? `

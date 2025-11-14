@@ -53,6 +53,17 @@ class ClaudeProvider(LLMProvider):
         """
         self.api_key = api_key or settings.anthropic_api_key
         self.model = model or settings.default_model
+
+        # Validate API key
+        if not self.api_key or self.api_key == "your_anthropic_api_key_here":
+            raise ValueError(
+                "Anthropic API key not configured. "
+                "Please set ANTHROPIC_API_KEY in your .env file."
+            )
+
+        print(f"Initializing Claude provider with model: {self.model}")
+        print(f"API key present: {bool(self.api_key)} (length: {len(self.api_key) if self.api_key else 0})")
+
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
     def generate(
@@ -78,6 +89,8 @@ class ClaudeProvider(LLMProvider):
         temperature = temperature or settings.default_temperature
 
         try:
+            print(f"Sending request to Claude - Model: {self.model}, Max tokens: {max_tokens}, Temperature: {temperature}")
+
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
@@ -88,8 +101,16 @@ class ClaudeProvider(LLMProvider):
             )
 
             # Extract text from response
-            return message.content[0].text
+            response_text = message.content[0].text
+            print(f"Received response from Claude (length: {len(response_text)} chars)")
+            return response_text
 
+        except anthropic.AuthenticationError as e:
+            raise RuntimeError(f"Authentication failed - check your API key in .env file: {str(e)}")
+        except anthropic.RateLimitError as e:
+            raise RuntimeError(f"Rate limit exceeded - please wait before trying again: {str(e)}")
+        except anthropic.APIError as e:
+            raise RuntimeError(f"Anthropic API error: {str(e)}")
         except Exception as e:
             raise RuntimeError(f"Error generating response from Claude: {str(e)}")
 
