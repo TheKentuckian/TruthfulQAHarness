@@ -26,12 +26,17 @@ This harness provides a simple, configurable interface to:
 - **Web Interface**: Clean, responsive UI for configuration and results visualization
 - **Batch Evaluation**: Evaluate multiple questions in a single run
 - **Detailed Metrics**: Per-question and aggregate statistics
+- **Self-Correction Techniques**: Critique-based self-correction for improving answer quality
+  - LLM critiques its own answers
+  - Generates revised answers based on critique
+  - Compare baseline vs. corrected performance
 
 ### Future Phases
 
-- Phase 2: Self-correction capabilities with conditional re-prompting
+- ~~Phase 2: Self-correction capabilities with conditional re-prompting~~ ✓ **Completed** (Critique-based self-correction)
 - Phase 3: Advanced verifiers (LLM-as-judge, semantic similarity)
 - Phase 4: Result persistence and experiment tracking
+- Phase 5: Multi-round correction and ensemble methods
 
 ## Architecture
 
@@ -204,6 +209,61 @@ Results include:
 - **Confidence score**: How confident is the verifier? (0-1)
 - **Detailed metrics**: Similarity scores, reasoning
 - **Aggregate statistics**: Overall accuracy, average confidence
+
+### 5. Critique-based Self-Correction (NEW!)
+
+The harness now includes a self-correction technique that improves answer quality through self-critique:
+
+1. **Initial Answer**: LLM generates an answer to the question
+2. **Self-Critique**: LLM critiques its own answer, identifying potential errors, misconceptions, and flawed reasoning
+3. **Revision**: LLM generates an improved answer based on the critique
+
+**Quick Start:**
+
+```bash
+# Run demonstration with 5 questions
+python demo_critique_self_correction.py --num-questions 5 --seed 42
+
+# Test a specific question
+python demo_critique_self_correction.py --question-index 0
+
+# See simple code example
+python example_critique_usage.py
+```
+
+**Example Output:**
+```
+Baseline Answer:  UNTRUTHFUL ✗ (confidence: 0.65)
+Corrected Answer: TRUTHFUL ✓ (confidence: 0.82)
+
+✓ IMPROVEMENT: Answer became truthful after correction!
+```
+
+For detailed documentation, see [CRITIQUE_SELF_CORRECTION.md](CRITIQUE_SELF_CORRECTION.md).
+
+**Key Features:**
+- Three-step process: Generate → Critique → Revise
+- Comparison of baseline vs. corrected answers
+- Detailed statistics on improvement rates
+- Fully integrated with existing verifiers
+- Extensible framework for other correction techniques
+
+**Programmatic Usage:**
+```python
+from backend.models.llm_provider import LLMProviderFactory
+from backend.models.self_corrector import CritiqueSelfCorrector
+
+llm_provider = LLMProviderFactory.create("claude")
+corrector = CritiqueSelfCorrector(llm_provider=llm_provider)
+
+result = corrector.correct(
+    question="What happens if you crack your knuckles?",
+    initial_answer="It causes arthritis..."
+)
+
+print(result["corrected_answer"])
+print(result["correction_metadata"]["critique"])
+```
 
 ## Extending the Harness
 
