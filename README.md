@@ -27,9 +27,18 @@ This harness provides a simple, configurable interface to:
 - **Batch Evaluation**: Evaluate multiple questions in a single run
 - **Detailed Metrics**: Per-question and aggregate statistics
 
+### Phase 2 (Self-Correction - **NEW!**)
+
+- **Reward/Feedback Self-Correction**: External reward model scores answers and provides feedback
+  - LLM-based reward model with multi-criteria scoring (truthfulness, coherence, completeness, etc.)
+  - Detailed feedback and actionable suggestions
+  - Automatic self-correction based on reward scores
+  - Comparison metrics (initial vs. corrected answers)
+  - API endpoints for self-correcting evaluation
+  - See [SELF_CORRECTION.md](SELF_CORRECTION.md) for detailed documentation
+
 ### Future Phases
 
-- Phase 2: Self-correction capabilities with conditional re-prompting
 - Phase 3: Advanced verifiers (LLM-as-judge, semantic similarity)
 - Phase 4: Result persistence and experiment tracking
 
@@ -129,7 +138,38 @@ The server will start on `http://localhost:8000` by default.
 
 ### API Endpoints
 
-The harness also provides a REST API for programmatic access:
+The harness provides a comprehensive REST API for programmatic access:
+
+#### Self-Correction Endpoints (**NEW!**)
+
+- `POST /api/evaluate/self-correct/single` - Evaluate single question with self-correction
+  ```json
+  {
+    "question_index": 0,
+    "config": {
+      "llm_provider": "claude",
+      "verifier_type": "simple_text",
+      "reward_model_type": "llm_reward",
+      "enable_correction": true,
+      "score_threshold": 0.7,
+      "max_iterations": 1
+    }
+  }
+  ```
+
+- `POST /api/evaluate/self-correct/batch` - Evaluate batch with self-correction
+  ```json
+  {
+    "sample_size": 5,
+    "seed": 42,
+    "config": {
+      "llm_provider": "claude",
+      "verifier_type": "simple_text",
+      "reward_model_type": "llm_reward",
+      "enable_correction": true
+    }
+  }
+  ```
 
 #### Dataset Endpoints
 
@@ -169,6 +209,24 @@ The harness also provides a REST API for programmatic access:
 
 - `GET /api/providers` - List available LLM providers
 - `GET /api/verifiers` - List available verifiers
+- `GET /api/reward-models` - List available reward models
+
+## Quick Start: Self-Correction Demo
+
+To see the reward/feedback self-correction technique in action:
+
+```bash
+python demo_self_correction.py
+```
+
+This demonstration shows:
+1. Initial answer generation (baseline)
+2. Reward model scoring on multiple criteria
+3. Detailed feedback and suggestions
+4. Self-corrected answer generation
+5. Comparison of improvements
+
+For comprehensive documentation on self-correction, see [SELF_CORRECTION.md](SELF_CORRECTION.md).
 
 ## How It Works
 
@@ -283,14 +341,35 @@ The word similarity approach is a simple baseline that:
 - **Limitations**: Surface-level comparison, doesn't understand semantics
 - **Best for**: Initial exploration and baseline performance
 
+### Self-Correction Research
+
+**Implemented - Reward/Feedback Technique**
+
+The harness now includes a complete implementation of reward/feedback self-correction:
+
+- **Reward Model**: LLM-based scoring on 5 criteria (truthfulness, coherence, completeness, relevance, safety)
+- **Feedback Loop**: Detailed feedback and suggestions provided to the LLM
+- **Automatic Correction**: LLM self-corrects based on reward scores and feedback
+- **Metrics**: Comprehensive comparison of initial vs. corrected answers
+- **Configurable**: Adjustable score thresholds, iteration counts, and criteria weights
+
+See [SELF_CORRECTION.md](SELF_CORRECTION.md) for complete documentation.
+
+**Research Questions You Can Explore:**
+- Does self-correction improve truthfulness on TruthfulQA?
+- What score threshold maximizes improvement?
+- How many iterations are optimal?
+- Which criteria correlate with truthfulness improvements?
+- When does correction make things worse?
+
 ### Future Directions
 
-For your master's research on self-correction:
-1. **Phase 2**: Implement conditional re-prompting based on verification results
-2. **LLM-as-Judge**: Use another LLM to verify answers
-3. **Semantic Similarity**: Use embeddings for deeper semantic comparison
-4. **Chain-of-Thought**: Prompt LLM to explain reasoning
-5. **Iterative Refinement**: Multiple correction attempts with different strategies
+Additional self-correction techniques to implement:
+1. **Multi-model Correction**: Use different LLMs for answering vs. correction
+2. **Iterative Refinement**: Continue correction until convergence
+3. **Chain-of-Thought**: Prompt LLM to explain reasoning before answering
+4. **Verification-based Re-prompting**: Use verifier results directly for correction
+5. **Ensemble Methods**: Combine multiple correction strategies
 
 ## Troubleshooting
 
