@@ -27,7 +27,19 @@ This harness provides a simple, configurable interface to:
 - **Batch Evaluation**: Evaluate multiple questions in a single run
 - **Detailed Metrics**: Per-question and aggregate statistics
 
-### Phase 2 (NEW: Chain of Thought Self-Correction)
+### Phase 2 (Self-Correction Techniques)
+- **Critique-based self-correction for improving answer quality**:
+  - LLM critiques its own answers
+  - Generates revised answers based on critique
+  - Compare baseline vs. corrected performance
+
+- **Reward/Feedback Self-Correction**: External reward model scores answers and provides feedback
+  - LLM-based reward model with multi-criteria scoring (truthfulness, coherence, completeness, etc.)
+  - Detailed feedback and actionable suggestions
+  - Automatic self-correction based on reward scores
+  - Comparison metrics (initial vs. corrected answers)
+  - API endpoints for self-correcting evaluation
+  - See [SELF_CORRECTION.md](SELF_CORRECTION.md) for detailed documentation
 
 - **Chain of Thought Prompting**: Multiple prompting strategies that encourage step-by-step reasoning
   - Direct, Chain of Thought, Self-Correction, Reflective, and Iterative strategies
@@ -41,11 +53,6 @@ This harness provides a simple, configurable interface to:
 📖 **See [COT_SELF_CORRECTION.md](COT_SELF_CORRECTION.md) for detailed documentation**
 🚀 **Run the demo**: `python demo_cot_correction.py --mode correction --questions 5`
 📊 **Example output**: See [EXAMPLE_OUTPUT.md](EXAMPLE_OUTPUT.md)
-
-### Future Phases
-
-- Phase 3: Advanced verifiers (LLM-as-judge, semantic similarity)
-- Phase 4: Result persistence and experiment tracking
 
 ## Architecture
 
@@ -149,7 +156,38 @@ The server will start on `http://localhost:8000` by default.
 
 ### API Endpoints
 
-The harness also provides a REST API for programmatic access:
+The harness provides a comprehensive REST API for programmatic access:
+
+#### Self-Correction Endpoints (**NEW!**)
+
+- `POST /api/evaluate/self-correct/single` - Evaluate single question with self-correction
+  ```json
+  {
+    "question_index": 0,
+    "config": {
+      "llm_provider": "claude",
+      "verifier_type": "simple_text",
+      "reward_model_type": "llm_reward",
+      "enable_correction": true,
+      "score_threshold": 0.7,
+      "max_iterations": 1
+    }
+  }
+  ```
+
+- `POST /api/evaluate/self-correct/batch` - Evaluate batch with self-correction
+  ```json
+  {
+    "sample_size": 5,
+    "seed": 42,
+    "config": {
+      "llm_provider": "claude",
+      "verifier_type": "simple_text",
+      "reward_model_type": "llm_reward",
+      "enable_correction": true
+    }
+  }
+  ```
 
 #### Dataset Endpoints
 
@@ -189,6 +227,24 @@ The harness also provides a REST API for programmatic access:
 
 - `GET /api/providers` - List available LLM providers
 - `GET /api/verifiers` - List available verifiers
+- `GET /api/reward-models` - List available reward models
+
+## Quick Start: Self-Correction Demo
+
+To see the reward/feedback self-correction technique in action:
+
+```bash
+python demo_self_correction.py
+```
+
+This demonstration shows:
+1. Initial answer generation (baseline)
+2. Reward model scoring on multiple criteria
+3. Detailed feedback and suggestions
+4. Self-corrected answer generation
+5. Comparison of improvements
+
+For comprehensive documentation on self-correction, see [SELF_CORRECTION.md](SELF_CORRECTION.md).
 
 ## How It Works
 
@@ -305,6 +361,18 @@ The word similarity approach is a simple baseline that:
 
 ### Self-Correction Research
 
+**Implemented - Reward/Feedback Technique**
+
+The harness now includes a complete implementation of reward/feedback self-correction:
+
+- **Reward Model**: LLM-based scoring on 5 criteria (truthfulness, coherence, completeness, relevance, safety)
+- **Feedback Loop**: Detailed feedback and suggestions provided to the LLM
+- **Automatic Correction**: LLM self-corrects based on reward scores and feedback
+- **Metrics**: Comprehensive comparison of initial vs. corrected answers
+- **Configurable**: Adjustable score thresholds, iteration counts, and criteria weights
+
+See [SELF_CORRECTION.md](SELF_CORRECTION.md) for complete documentation.
+
 The harness now includes comprehensive chain of thought self-correction capabilities:
 
 **✅ Implemented (Phase 2)**:
@@ -314,12 +382,7 @@ The harness now includes comprehensive chain of thought self-correction capabili
 4. **Strategy Comparison**: Compare effectiveness of different approaches
 5. **Comprehensive Metrics**: Track improvement and correction success rates
 
-**🔮 Future Research Directions**:
-1. **LLM-as-Judge**: Use another LLM to verify answers (more nuanced than word similarity)
-2. **Semantic Similarity**: Use embeddings for deeper semantic comparison
-3. **Adaptive Correction**: Dynamically select strategies based on question type/confidence
-4. **Multi-Model Correction**: Use different models for initial vs correction
-5. **Human-in-the-Loop**: Allow manual review and guidance in the correction process
+
 
 ## Troubleshooting
 
