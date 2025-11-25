@@ -26,38 +26,53 @@ This harness provides a simple, configurable interface to:
 - **Web Interface**: Clean, responsive UI for configuration and results visualization
 - **Batch Evaluation**: Evaluate multiple questions in a single run
 - **Detailed Metrics**: Per-question and aggregate statistics
-- **Self-Correction Techniques**: Critique-based self-correction for improving answer quality
-  - LLM critiques its own answers
-  - Generates revised answers based on critique
-  - Compare baseline vs. corrected performance
+
+### Phase 2 (NEW: Chain of Thought Self-Correction)
+
+- **Chain of Thought Prompting**: Multiple prompting strategies that encourage step-by-step reasoning
+  - Direct, Chain of Thought, Self-Correction, Reflective, and Iterative strategies
+- **Self-Correction Pipeline**: Automatically re-prompts the LLM when initial answers are untruthful
+  - Uses CoT to help the model identify and fix its own mistakes
+  - Tracks correction history and success rates
+- **Strategy Comparison**: Compare effectiveness of different prompting approaches
+- **Comprehensive Metrics**: Track improvement from initial to corrected answers
+- **Demo Scripts**: Ready-to-use demonstrations of CoT self-correction capabilities
+
+📖 **See [COT_SELF_CORRECTION.md](COT_SELF_CORRECTION.md) for detailed documentation**
+🚀 **Run the demo**: `python demo_cot_correction.py --mode correction --questions 5`
+📊 **Example output**: See [EXAMPLE_OUTPUT.md](EXAMPLE_OUTPUT.md)
 
 ### Future Phases
 
-- ~~Phase 2: Self-correction capabilities with conditional re-prompting~~ ✓ **Completed** (Critique-based self-correction)
 - Phase 3: Advanced verifiers (LLM-as-judge, semantic similarity)
 - Phase 4: Result persistence and experiment tracking
-- Phase 5: Multi-round correction and ensemble methods
 
 ## Architecture
 
 ```
 TruthfulQAHarness/
 ├── backend/
-│   ├── app.py                  # FastAPI server
-│   ├── config.py               # Configuration management
+│   ├── app.py                           # FastAPI server
+│   ├── config.py                        # Configuration management
 │   ├── models/
-│   │   ├── llm_provider.py    # LLM provider abstraction
-│   │   └── verifier.py        # Verifier abstraction
+│   │   ├── llm_provider.py             # LLM provider abstraction
+│   │   └── verifier.py                 # Verifier abstraction
 │   └── services/
-│       ├── dataset_loader.py  # TruthfulQA loader
-│       └── evaluator.py       # Evaluation pipeline
+│       ├── dataset_loader.py           # TruthfulQA loader
+│       ├── evaluator.py                # Evaluation pipeline
+│       ├── prompt_strategies.py        # CoT prompt strategies
+│       └── self_correction_evaluator.py # Self-correction pipeline
 ├── frontend/
-│   ├── index.html             # Main UI
+│   ├── index.html                      # Main UI
 │   ├── styles.css             # Styling
 │   └── app.js                 # Frontend logic
-├── requirements.txt           # Python dependencies
-├── .env.example              # Environment variables template
-└── README.md                 # This file
+├── demo_cot_correction.py             # CoT self-correction demo
+├── test_cot_correction.py             # Unit tests for CoT features
+├── requirements.txt                   # Python dependencies
+├── .env.example                       # Environment variables template
+├── README.md                          # This file
+├── COT_SELF_CORRECTION.md            # CoT feature documentation
+└── EXAMPLE_OUTPUT.md                 # Example demo outputs
 ```
 
 ## Installation
@@ -210,61 +225,6 @@ Results include:
 - **Detailed metrics**: Similarity scores, reasoning
 - **Aggregate statistics**: Overall accuracy, average confidence
 
-### 5. Critique-based Self-Correction (NEW!)
-
-The harness now includes a self-correction technique that improves answer quality through self-critique:
-
-1. **Initial Answer**: LLM generates an answer to the question
-2. **Self-Critique**: LLM critiques its own answer, identifying potential errors, misconceptions, and flawed reasoning
-3. **Revision**: LLM generates an improved answer based on the critique
-
-**Quick Start:**
-
-```bash
-# Run demonstration with 5 questions
-python demo_critique_self_correction.py --num-questions 5 --seed 42
-
-# Test a specific question
-python demo_critique_self_correction.py --question-index 0
-
-# See simple code example
-python example_critique_usage.py
-```
-
-**Example Output:**
-```
-Baseline Answer:  UNTRUTHFUL ✗ (confidence: 0.65)
-Corrected Answer: TRUTHFUL ✓ (confidence: 0.82)
-
-✓ IMPROVEMENT: Answer became truthful after correction!
-```
-
-For detailed documentation, see [CRITIQUE_SELF_CORRECTION.md](CRITIQUE_SELF_CORRECTION.md).
-
-**Key Features:**
-- Three-step process: Generate → Critique → Revise
-- Comparison of baseline vs. corrected answers
-- Detailed statistics on improvement rates
-- Fully integrated with existing verifiers
-- Extensible framework for other correction techniques
-
-**Programmatic Usage:**
-```python
-from backend.models.llm_provider import LLMProviderFactory
-from backend.models.self_corrector import CritiqueSelfCorrector
-
-llm_provider = LLMProviderFactory.create("claude")
-corrector = CritiqueSelfCorrector(llm_provider=llm_provider)
-
-result = corrector.correct(
-    question="What happens if you crack your knuckles?",
-    initial_answer="It causes arthritis..."
-)
-
-print(result["corrected_answer"])
-print(result["correction_metadata"]["critique"])
-```
-
 ## Extending the Harness
 
 ### Adding a New LLM Provider
@@ -343,14 +303,23 @@ The word similarity approach is a simple baseline that:
 - **Limitations**: Surface-level comparison, doesn't understand semantics
 - **Best for**: Initial exploration and baseline performance
 
-### Future Directions
+### Self-Correction Research
 
-For your master's research on self-correction:
-1. **Phase 2**: Implement conditional re-prompting based on verification results
-2. **LLM-as-Judge**: Use another LLM to verify answers
-3. **Semantic Similarity**: Use embeddings for deeper semantic comparison
-4. **Chain-of-Thought**: Prompt LLM to explain reasoning
-5. **Iterative Refinement**: Multiple correction attempts with different strategies
+The harness now includes comprehensive chain of thought self-correction capabilities:
+
+**✅ Implemented (Phase 2)**:
+1. **Chain-of-Thought Prompting**: Multiple strategies for step-by-step reasoning
+2. **Conditional Re-prompting**: Automatic correction when answers are untruthful
+3. **Iterative Refinement**: Support for multiple correction attempts
+4. **Strategy Comparison**: Compare effectiveness of different approaches
+5. **Comprehensive Metrics**: Track improvement and correction success rates
+
+**🔮 Future Research Directions**:
+1. **LLM-as-Judge**: Use another LLM to verify answers (more nuanced than word similarity)
+2. **Semantic Similarity**: Use embeddings for deeper semantic comparison
+3. **Adaptive Correction**: Dynamically select strategies based on question type/confidence
+4. **Multi-Model Correction**: Use different models for initial vs correction
+5. **Human-in-the-Loop**: Allow manual review and guidance in the correction process
 
 ## Troubleshooting
 
