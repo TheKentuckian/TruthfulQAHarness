@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     # API Keys
     anthropic_api_key: str = ""
 
+    # LM Studio Configuration
+    lm_studio_base_url: str = "http://localhost:1234/v1"
+    lm_studio_model: str = "local-model"
+    lm_studio_api_key: str = "not-needed"
+
     # Server Configuration
     host: str = "0.0.0.0"
     port: int = 8000

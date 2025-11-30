@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 import anthropic
+from openai import OpenAI
 from backend.config import settings
 
 
@@ -119,11 +120,91 @@ class ClaudeProvider(LLMProvider):
         return f"Claude ({self.model})"
 
 
+class LMStudioProvider(LLMProvider):
+    """LM Studio provider using OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ):
+        """
+        Initialize the LM Studio provider.
+
+        Args:
+            base_url: Base URL for LM Studio server (defaults to settings)
+            model: Model name (defaults to settings)
+            api_key: API key (optional, defaults to "not-needed" for local LM Studio)
+        """
+        self.base_url = base_url or settings.lm_studio_base_url
+        self.model = model or settings.lm_studio_model
+        self.api_key = api_key or settings.lm_studio_api_key
+
+        print(f"Initializing LM Studio provider")
+        print(f"Base URL: {self.base_url}")
+        print(f"Model: {self.model}")
+
+        # LM Studio uses OpenAI-compatible API
+        self.client = OpenAI(
+            base_url=self.base_url,
+            api_key=self.api_key  # LM Studio typically doesn't require a real API key
+        )
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs
+    ) -> str:
+        """
+        Generate a response using LM Studio.
+
+        Args:
+            prompt: The input prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            **kwargs: Additional parameters
+
+        Returns:
+            The generated text response
+        """
+        max_tokens = max_tokens or settings.default_max_tokens
+        temperature = temperature or settings.default_temperature
+
+        try:
+            print(f"Sending request to LM Studio - Model: {self.model}, Max tokens: {max_tokens}, Temperature: {temperature}")
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                **kwargs
+            )
+
+            # Extract text from response
+            response_text = response.choices[0].message.content
+            print(f"Received response from LM Studio (length: {len(response_text) if response_text else 0} chars)")
+            return response_text or ""
+
+        except Exception as e:
+            raise RuntimeError(f"Error generating response from LM Studio: {str(e)}")
+
+    def get_provider_name(self) -> str:
+        """Return the name of the provider."""
+        return f"LM Studio ({self.model})"
+
+
 class LLMProviderFactory:
     """Factory for creating LLM providers."""
 
     _providers = {
         "claude": ClaudeProvider,
+        "lm_studio": LMStudioProvider,
     }
 
     @classmethod
