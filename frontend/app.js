@@ -243,8 +243,7 @@ async function evaluateBatch() {
     // Create new AbortController for this request
     abortController = new AbortController();
 
-    showLoading(true, 'Evaluating questions...');
-    cancelBatchBtn.style.display = 'inline-block';
+    showLoading(true, 'Evaluating questions...', true);  // true = show cancel button
     evaluateBatchBtn.disabled = true;
 
     try {
@@ -279,7 +278,6 @@ async function evaluateBatch() {
         }
     } finally {
         showLoading(false);
-        cancelBatchBtn.style.display = 'none';
         evaluateBatchBtn.disabled = false;
         abortController = null;
     }
@@ -453,12 +451,23 @@ function createResultCard(result, index) {
 }
 
 // Show/hide loading overlay
-function showLoading(show, message = 'Loading...') {
+function showLoading(show, message = 'Loading...', showCancel = false) {
     if (show) {
-        loadingOverlay.querySelector('p').textContent = message;
+        const messageElement = document.getElementById('loading-message');
+        if (messageElement) {
+            messageElement.textContent = message;
+        }
         loadingOverlay.style.display = 'flex';
+
+        // Show/hide cancel button
+        if (showCancel) {
+            cancelBatchBtn.style.display = 'inline-block';
+        } else {
+            cancelBatchBtn.style.display = 'none';
+        }
     } else {
         loadingOverlay.style.display = 'none';
+        cancelBatchBtn.style.display = 'none';
     }
 }
 
