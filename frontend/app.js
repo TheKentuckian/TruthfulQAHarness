@@ -1,5 +1,6 @@
 // TruthfulQA Harness Frontend
 const API_BASE = window.location.origin;
+const STORAGE_KEY = 'truthfulqa_config';
 
 // State
 let loadedQuestions = [];
@@ -15,13 +16,31 @@ const resultsList = document.getElementById('results-list');
 const summaryCard = document.getElementById('summary-card');
 const loadingOverlay = document.getElementById('loading-overlay');
 const datasetInfo = document.getElementById('dataset-info');
+const llmProviderSelect = document.getElementById('llm-provider');
+const lmStudioConfig = document.getElementById('lm-studio-config');
 
 // Event Listeners
 loadSampleBtn.addEventListener('click', loadSampleQuestions);
 evaluateBatchBtn.addEventListener('click', evaluateBatch);
+llmProviderSelect.addEventListener('change', handleProviderChange);
+
+// Add change listeners to save config
+document.getElementById('llm-provider').addEventListener('change', saveConfig);
+document.getElementById('llm-model').addEventListener('input', saveConfig);
+document.getElementById('lm-studio-url').addEventListener('input', saveConfig);
+document.getElementById('lm-studio-model').addEventListener('input', saveConfig);
+document.getElementById('max-tokens').addEventListener('input', saveConfig);
+document.getElementById('temperature').addEventListener('input', saveConfig);
+document.getElementById('verifier-type').addEventListener('change', saveConfig);
 
 // Initialize
 async function init() {
+    // Load saved configuration
+    loadConfig();
+
+    // Set initial visibility of LM Studio config
+    handleProviderChange();
+
     try {
         const response = await fetch(`${API_BASE}/api/dataset/info`);
         const info = await response.json();
@@ -29,6 +48,59 @@ async function init() {
     } catch (error) {
         console.error('Error fetching dataset info:', error);
         datasetInfo.textContent = 'Dataset info unavailable';
+    }
+}
+
+// Handle provider selection change
+function handleProviderChange() {
+    const provider = llmProviderSelect.value;
+
+    if (provider === 'lm_studio') {
+        lmStudioConfig.style.display = 'block';
+    } else {
+        lmStudioConfig.style.display = 'none';
+    }
+}
+
+// Save configuration to localStorage
+function saveConfig() {
+    const config = {
+        llmProvider: document.getElementById('llm-provider').value,
+        llmModel: document.getElementById('llm-model').value,
+        lmStudioUrl: document.getElementById('lm-studio-url').value,
+        lmStudioModel: document.getElementById('lm-studio-model').value,
+        maxTokens: document.getElementById('max-tokens').value,
+        temperature: document.getElementById('temperature').value,
+        verifierType: document.getElementById('verifier-type').value,
+    };
+
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        console.log('Configuration saved');
+    } catch (error) {
+        console.error('Error saving configuration:', error);
+    }
+}
+
+// Load configuration from localStorage
+function loadConfig() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return;
+
+        const config = JSON.parse(saved);
+
+        if (config.llmProvider) document.getElementById('llm-provider').value = config.llmProvider;
+        if (config.llmModel) document.getElementById('llm-model').value = config.llmModel;
+        if (config.lmStudioUrl) document.getElementById('lm-studio-url').value = config.lmStudioUrl;
+        if (config.lmStudioModel) document.getElementById('lm-studio-model').value = config.lmStudioModel;
+        if (config.maxTokens) document.getElementById('max-tokens').value = config.maxTokens;
+        if (config.temperature) document.getElementById('temperature').value = config.temperature;
+        if (config.verifierType) document.getElementById('verifier-type').value = config.verifierType;
+
+        console.log('Configuration loaded');
+    } catch (error) {
+        console.error('Error loading configuration:', error);
     }
 }
 
@@ -135,16 +207,27 @@ function getEvaluationConfig() {
     const temperature = parseFloat(document.getElementById('temperature').value);
     const verifierType = document.getElementById('verifier-type').value;
 
-    return {
+    const config = {
         llm_provider: llmProvider,
-        llm_config: {
-            model: llmModel || undefined
-        },
+        llm_config: {},
         verifier_type: verifierType,
         verifier_config: {},
         max_tokens: maxTokens || undefined,
         temperature: temperature || undefined
     };
+
+    // Add provider-specific configuration
+    if (llmProvider === 'lm_studio') {
+        const lmStudioUrl = document.getElementById('lm-studio-url').value;
+        const lmStudioModel = document.getElementById('lm-studio-model').value;
+
+        config.llm_config.base_url = lmStudioUrl || undefined;
+        config.llm_config.model = lmStudioModel || undefined;
+    } else if (llmProvider === 'claude') {
+        config.llm_config.model = llmModel || undefined;
+    }
+
+    return config;
 }
 
 // Display evaluation results

@@ -22,8 +22,24 @@
                     <label for="llm-provider">Provider:</label>
                     <select id="llm-provider">
                         <option value="claude" selected>Claude</option>
+                        <option value="lm_studio">Local Model (LM Studio)</option>
                     </select>
                 </div>
+
+                <!-- LM Studio Configuration (hidden by default) -->
+                <div id="lm-studio-config" style="display: none; margin-top: 15px; padding: 15px; background: #f7fafc; border-left: 3px solid #4299e1; border-radius: 4px;">
+                    <div class="form-group">
+                        <label for="lm-studio-url">LM Studio URL:</label>
+                        <input type="text" id="lm-studio-url" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
+                        <small style="display: block; margin-top: 5px; color: #718096;">The base URL where LM Studio is running</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="lm-studio-model">Model Name:</label>
+                        <input type="text" id="lm-studio-model" value="local-model" placeholder="Model name from LM Studio">
+                        <small style="display: block; margin-top: 5px; color: #718096;">The name of the model loaded in LM Studio</small>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="llm-model">Model:</label>
                     <input type="text" id="llm-model" value="claude-sonnet-4-5-20250929" placeholder="Model name">
