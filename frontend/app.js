@@ -1,14 +1,18 @@
 // TruthfulQA Harness Frontend
 const API_BASE = window.location.origin;
 const STORAGE_KEY = 'truthfulqa_config';
+const MODEL_HISTORY_KEY = 'truthfulqa_model_history';
+const MAX_MODEL_HISTORY = 10;
 
 // State
 let loadedQuestions = [];
 let evaluationResults = null;
+let abortController = null;
 
 // DOM Elements
 const loadSampleBtn = document.getElementById('load-sample-btn');
 const evaluateBatchBtn = document.getElementById('evaluate-batch-btn');
+const cancelBatchBtn = document.getElementById('cancel-batch-btn');
 const questionsPanel = document.getElementById('questions-panel');
 const questionsList = document.getElementById('questions-list');
 const resultsPanel = document.getElementById('results-panel');
@@ -18,17 +22,22 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const datasetInfo = document.getElementById('dataset-info');
 const llmProviderSelect = document.getElementById('llm-provider');
 const lmStudioConfig = document.getElementById('lm-studio-config');
+const toggleUrlConfig = document.getElementById('toggle-url-config');
+const urlConfigSection = document.getElementById('url-config-section');
 
 // Event Listeners
 loadSampleBtn.addEventListener('click', loadSampleQuestions);
 evaluateBatchBtn.addEventListener('click', evaluateBatch);
+cancelBatchBtn.addEventListener('click', cancelEvaluation);
 llmProviderSelect.addEventListener('change', handleProviderChange);
+toggleUrlConfig.addEventListener('click', handleToggleUrlConfig);
 
 // Add change listeners to save config
 document.getElementById('llm-provider').addEventListener('change', saveConfig);
 document.getElementById('llm-model').addEventListener('input', saveConfig);
+document.getElementById('llm-model').addEventListener('change', handleModelChange);
 document.getElementById('lm-studio-url').addEventListener('input', saveConfig);
-document.getElementById('lm-studio-model').addEventListener('input', saveConfig);
+document.getElementById('qwen-thinking').addEventListener('change', saveConfig);
 document.getElementById('max-tokens').addEventListener('input', saveConfig);
 document.getElementById('temperature').addEventListener('input', saveConfig);
 document.getElementById('verifier-type').addEventListener('change', saveConfig);
@@ -37,6 +46,9 @@ document.getElementById('verifier-type').addEventListener('change', saveConfig);
 async function init() {
     // Load saved configuration
     loadConfig();
+
+    // Load model history
+    loadModelHistory();
 
     // Set initial visibility of LM Studio config
     handleProviderChange();
@@ -62,13 +74,73 @@ function handleProviderChange() {
     }
 }
 
+// Handle toggle URL config section
+function handleToggleUrlConfig(e) {
+    e.preventDefault();
+    const isVisible = urlConfigSection.style.display !== 'none';
+
+    if (isVisible) {
+        urlConfigSection.style.display = 'none';
+        toggleUrlConfig.innerHTML = '▶ Advanced: Configure LM Studio URL';
+    } else {
+        urlConfigSection.style.display = 'block';
+        toggleUrlConfig.innerHTML = '▼ Advanced: Configure LM Studio URL';
+    }
+}
+
+// Handle model change - add to history
+function handleModelChange() {
+    const modelName = document.getElementById('llm-model').value.trim();
+    if (modelName) {
+        addToModelHistory(modelName);
+    }
+}
+
+// Add model to history
+function addToModelHistory(modelName) {
+    try {
+        let history = JSON.parse(localStorage.getItem(MODEL_HISTORY_KEY) || '[]');
+
+        // Remove if already exists
+        history = history.filter(m => m !== modelName);
+
+        // Add to beginning
+        history.unshift(modelName);
+
+        // Keep only MAX_MODEL_HISTORY items
+        history = history.slice(0, MAX_MODEL_HISTORY);
+
+        localStorage.setItem(MODEL_HISTORY_KEY, JSON.stringify(history));
+        loadModelHistory();
+    } catch (error) {
+        console.error('Error saving model history:', error);
+    }
+}
+
+// Load model history into datalist
+function loadModelHistory() {
+    try {
+        const history = JSON.parse(localStorage.getItem(MODEL_HISTORY_KEY) || '[]');
+        const datalist = document.getElementById('model-history');
+        datalist.innerHTML = '';
+
+        history.forEach(modelName => {
+            const option = document.createElement('option');
+            option.value = modelName;
+            datalist.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading model history:', error);
+    }
+}
+
 // Save configuration to localStorage
 function saveConfig() {
     const config = {
         llmProvider: document.getElementById('llm-provider').value,
         llmModel: document.getElementById('llm-model').value,
         lmStudioUrl: document.getElementById('lm-studio-url').value,
-        lmStudioModel: document.getElementById('lm-studio-model').value,
+        qwenThinking: document.getElementById('qwen-thinking').value,
         maxTokens: document.getElementById('max-tokens').value,
         temperature: document.getElementById('temperature').value,
         verifierType: document.getElementById('verifier-type').value,
@@ -93,7 +165,7 @@ function loadConfig() {
         if (config.llmProvider) document.getElementById('llm-provider').value = config.llmProvider;
         if (config.llmModel) document.getElementById('llm-model').value = config.llmModel;
         if (config.lmStudioUrl) document.getElementById('lm-studio-url').value = config.lmStudioUrl;
-        if (config.lmStudioModel) document.getElementById('lm-studio-model').value = config.lmStudioModel;
+        if (config.qwenThinking) document.getElementById('qwen-thinking').value = config.qwenThinking;
         if (config.maxTokens) document.getElementById('max-tokens').value = config.maxTokens;
         if (config.temperature) document.getElementById('temperature').value = config.temperature;
         if (config.verifierType) document.getElementById('verifier-type').value = config.verifierType;
@@ -168,7 +240,12 @@ function displayQuestions(questions) {
 async function evaluateBatch() {
     const config = getEvaluationConfig();
 
+    // Create new AbortController for this request
+    abortController = new AbortController();
+
     showLoading(true, 'Evaluating questions...');
+    cancelBatchBtn.style.display = 'inline-block';
+    evaluateBatchBtn.disabled = true;
 
     try {
         const requestBody = {
@@ -181,7 +258,8 @@ async function evaluateBatch() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            signal: abortController.signal
         });
 
         if (!response.ok) {
@@ -192,17 +270,33 @@ async function evaluateBatch() {
         evaluationResults = await response.json();
         displayResults(evaluationResults);
     } catch (error) {
-        console.error('Error evaluating questions:', error);
-        alert(`Failed to evaluate questions: ${error.message}`);
+        if (error.name === 'AbortError') {
+            console.log('Evaluation cancelled by user');
+            alert('Evaluation cancelled');
+        } else {
+            console.error('Error evaluating questions:', error);
+            alert(`Failed to evaluate questions: ${error.message}`);
+        }
     } finally {
         showLoading(false);
+        cancelBatchBtn.style.display = 'none';
+        evaluateBatchBtn.disabled = false;
+        abortController = null;
+    }
+}
+
+// Cancel evaluation
+function cancelEvaluation() {
+    if (abortController) {
+        abortController.abort();
+        console.log('Cancelling evaluation...');
     }
 }
 
 // Get evaluation configuration from form
 function getEvaluationConfig() {
     const llmProvider = document.getElementById('llm-provider').value;
-    const llmModel = document.getElementById('llm-model').value;
+    let llmModel = document.getElementById('llm-model').value;
     const maxTokens = parseInt(document.getElementById('max-tokens').value);
     const temperature = parseFloat(document.getElementById('temperature').value);
     const verifierType = document.getElementById('verifier-type').value;
@@ -219,10 +313,15 @@ function getEvaluationConfig() {
     // Add provider-specific configuration
     if (llmProvider === 'lm_studio') {
         const lmStudioUrl = document.getElementById('lm-studio-url').value;
-        const lmStudioModel = document.getElementById('lm-studio-model').value;
+        const qwenThinking = document.getElementById('qwen-thinking').value;
+
+        // Add /no_think prefix if Qwen3 thinking is disabled
+        if (qwenThinking === 'disabled' && llmModel && !llmModel.startsWith('/no_think')) {
+            llmModel = '/no_think' + llmModel;
+        }
 
         config.llm_config.base_url = lmStudioUrl || undefined;
-        config.llm_config.model = lmStudioModel || undefined;
+        config.llm_config.model = llmModel || undefined;
     } else if (llmProvider === 'claude') {
         config.llm_config.model = llmModel || undefined;
     }
