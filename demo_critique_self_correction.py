@@ -273,7 +273,7 @@ def main():
         )
     else:
         # Test multiple random questions
-        questions = loader.sample_questions(
+        questions = loader.get_sample(
             sample_size=args.num_questions,
             seed=args.seed,
         )
