@@ -128,6 +128,7 @@ class LMStudioProvider(LLMProvider):
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
+        qwen_no_think: bool = False,
     ):
         """
         Initialize the LM Studio provider.
@@ -136,14 +137,17 @@ class LMStudioProvider(LLMProvider):
             base_url: Base URL for LM Studio server (defaults to settings)
             model: Model name (defaults to settings)
             api_key: API key (optional, defaults to "not-needed" for local LM Studio)
+            qwen_no_think: Whether to prepend /no_think to prompts for Qwen3 models
         """
         self.base_url = base_url or settings.lm_studio_base_url
         self.model = model or settings.lm_studio_model
         self.api_key = api_key or settings.lm_studio_api_key
+        self.qwen_no_think = qwen_no_think
 
         print(f"Initializing LM Studio provider")
         print(f"Base URL: {self.base_url}")
         print(f"Model: {self.model}")
+        print(f"Qwen no-think mode: {self.qwen_no_think}")
 
         # LM Studio uses OpenAI-compatible API
         self.client = OpenAI(
@@ -172,6 +176,11 @@ class LMStudioProvider(LLMProvider):
         """
         max_tokens = max_tokens or settings.default_max_tokens
         temperature = temperature or settings.default_temperature
+
+        # Prepend /no_think if Qwen no-think mode is enabled
+        if self.qwen_no_think:
+            prompt = "/no_think " + prompt
+            print(f"Qwen no-think mode: prepended '/no_think ' to prompt")
 
         try:
             print(f"Sending request to LM Studio - Model: {self.model}, Max tokens: {max_tokens}, Temperature: {temperature}")

@@ -296,7 +296,7 @@ function cancelEvaluation() {
 // Get evaluation configuration from form
 function getEvaluationConfig() {
     const llmProvider = document.getElementById('llm-provider').value;
-    let llmModel = document.getElementById('llm-model').value;
+    const llmModel = document.getElementById('llm-model').value;
     const maxTokens = parseInt(document.getElementById('max-tokens').value);
     const temperature = parseFloat(document.getElementById('temperature').value);
     const verifierType = document.getElementById('verifier-type').value;
@@ -315,13 +315,13 @@ function getEvaluationConfig() {
         const lmStudioUrl = document.getElementById('lm-studio-url').value;
         const qwenThinking = document.getElementById('qwen-thinking').value;
 
-        // Add /no_think prefix if Qwen3 thinking is disabled
-        if (qwenThinking === 'disabled' && llmModel && !llmModel.startsWith('/no_think')) {
-            llmModel = '/no_think' + llmModel;
-        }
-
         config.llm_config.base_url = lmStudioUrl || undefined;
         config.llm_config.model = llmModel || undefined;
+
+        // Add flag for Qwen3 no-thinking mode (backend will prepend to prompt)
+        if (qwenThinking === 'disabled') {
+            config.llm_config.qwen_no_think = true;
+        }
     } else if (llmProvider === 'claude') {
         config.llm_config.model = llmModel || undefined;
     }
