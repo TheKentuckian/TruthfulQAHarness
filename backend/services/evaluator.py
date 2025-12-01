@@ -89,6 +89,7 @@ class Evaluator:
                 llm_answer=llm_answer,
                 correct_answers=correct_answers,
                 incorrect_answers=incorrect_answers,
+                question=question,  # Pass question for LLM judge verifiers
             )
         except Exception as e:
             verification_result = {

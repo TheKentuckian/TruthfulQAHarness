@@ -24,6 +24,13 @@ const llmProviderSelect = document.getElementById('llm-provider');
 const lmStudioConfig = document.getElementById('lm-studio-config');
 const toggleUrlConfig = document.getElementById('toggle-url-config');
 const urlConfigSection = document.getElementById('url-config-section');
+const verifierTypeSelect = document.getElementById('verifier-type');
+const llmJudgeConfig = document.getElementById('llm-judge-config');
+const judgeProviderSelect = document.getElementById('judge-provider');
+const judgeLmStudioConfig = document.getElementById('judge-lm-studio-config');
+const loadPastEvaluationsBtn = document.getElementById('load-past-evaluations-btn');
+const pastEvaluationsList = document.getElementById('past-evaluations-list');
+const pastEvaluationsCount = document.getElementById('past-evaluations-count');
 
 // Event Listeners
 loadSampleBtn.addEventListener('click', loadSampleQuestions);
@@ -31,6 +38,9 @@ evaluateBatchBtn.addEventListener('click', evaluateBatch);
 cancelBatchBtn.addEventListener('click', cancelEvaluation);
 llmProviderSelect.addEventListener('change', handleProviderChange);
 toggleUrlConfig.addEventListener('click', handleToggleUrlConfig);
+verifierTypeSelect.addEventListener('change', handleVerifierTypeChange);
+judgeProviderSelect.addEventListener('change', handleJudgeProviderChange);
+loadPastEvaluationsBtn.addEventListener('click', loadPastEvaluations);
 
 // Add change listeners to save config
 document.getElementById('llm-provider').addEventListener('change', saveConfig);
@@ -41,6 +51,9 @@ document.getElementById('qwen-thinking').addEventListener('change', saveConfig);
 document.getElementById('max-tokens').addEventListener('input', saveConfig);
 document.getElementById('temperature').addEventListener('input', saveConfig);
 document.getElementById('verifier-type').addEventListener('change', saveConfig);
+document.getElementById('judge-provider').addEventListener('change', saveConfig);
+document.getElementById('judge-model').addEventListener('input', saveConfig);
+document.getElementById('judge-lm-studio-url').addEventListener('input', saveConfig);
 
 // Initialize
 async function init() {
@@ -50,8 +63,10 @@ async function init() {
     // Load model history
     loadModelHistory();
 
-    // Set initial visibility of LM Studio config
+    // Set initial visibility of LM Studio config and LLM Judge config
     handleProviderChange();
+    handleVerifierTypeChange();
+    handleJudgeProviderChange();
 
     try {
         const response = await fetch(`${API_BASE}/api/dataset/info`);
@@ -85,6 +100,28 @@ function handleToggleUrlConfig(e) {
     } else {
         urlConfigSection.style.display = 'block';
         toggleUrlConfig.innerHTML = '▼ Advanced: Configure LM Studio URL';
+    }
+}
+
+// Handle verifier type selection change
+function handleVerifierTypeChange() {
+    const verifierType = verifierTypeSelect.value;
+
+    if (verifierType === 'llm_judge') {
+        llmJudgeConfig.style.display = 'block';
+    } else {
+        llmJudgeConfig.style.display = 'none';
+    }
+}
+
+// Handle judge provider selection change
+function handleJudgeProviderChange() {
+    const judgeProvider = judgeProviderSelect.value;
+
+    if (judgeProvider === 'lm_studio') {
+        judgeLmStudioConfig.style.display = 'block';
+    } else {
+        judgeLmStudioConfig.style.display = 'none';
     }
 }
 
@@ -144,6 +181,9 @@ function saveConfig() {
         maxTokens: document.getElementById('max-tokens').value,
         temperature: document.getElementById('temperature').value,
         verifierType: document.getElementById('verifier-type').value,
+        judgeProvider: document.getElementById('judge-provider').value,
+        judgeModel: document.getElementById('judge-model').value,
+        judgeLmStudioUrl: document.getElementById('judge-lm-studio-url').value,
     };
 
     try {
@@ -169,6 +209,9 @@ function loadConfig() {
         if (config.maxTokens) document.getElementById('max-tokens').value = config.maxTokens;
         if (config.temperature) document.getElementById('temperature').value = config.temperature;
         if (config.verifierType) document.getElementById('verifier-type').value = config.verifierType;
+        if (config.judgeProvider) document.getElementById('judge-provider').value = config.judgeProvider;
+        if (config.judgeModel) document.getElementById('judge-model').value = config.judgeModel;
+        if (config.judgeLmStudioUrl) document.getElementById('judge-lm-studio-url').value = config.judgeLmStudioUrl;
 
         console.log('Configuration loaded');
     } catch (error) {
@@ -322,6 +365,22 @@ function getEvaluationConfig() {
         }
     } else if (llmProvider === 'claude') {
         config.llm_config.model = llmModel || undefined;
+    }
+
+    // Add verifier-specific configuration
+    if (verifierType === 'llm_judge') {
+        const judgeProvider = document.getElementById('judge-provider').value;
+        const judgeModel = document.getElementById('judge-model').value;
+
+        config.verifier_config.judge_provider = judgeProvider;
+        config.verifier_config.judge_llm_config = {
+            model: judgeModel || undefined
+        };
+
+        if (judgeProvider === 'lm_studio') {
+            const judgeLmStudioUrl = document.getElementById('judge-lm-studio-url').value;
+            config.verifier_config.judge_llm_config.base_url = judgeLmStudioUrl || undefined;
+        }
     }
 
     return config;
@@ -481,6 +540,186 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text ? String(text).replace(/[&<>"']/g, m => map[m]) : '';
+}
+
+// Load past evaluations
+async function loadPastEvaluations() {
+    showLoading(true, 'Loading past evaluations...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/results?limit=20`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        displayPastEvaluations(data.evaluations, data.total_count);
+    } catch (error) {
+        console.error('Error loading past evaluations:', error);
+        alert(`Failed to load past evaluations: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Display past evaluations
+function displayPastEvaluations(evaluations, totalCount) {
+    pastEvaluationsList.innerHTML = '';
+
+    if (evaluations.length === 0) {
+        pastEvaluationsList.innerHTML = '<p style="text-align: center; color: #718096; padding: 20px;">No past evaluations found. Run an evaluation to see results here.</p>';
+        pastEvaluationsList.style.display = 'block';
+        pastEvaluationsCount.textContent = 'Total evaluations: 0';
+        return;
+    }
+
+    pastEvaluationsCount.textContent = `Showing ${evaluations.length} of ${totalCount} total evaluations`;
+
+    evaluations.forEach((evaluation) => {
+        const card = createPastEvaluationCard(evaluation);
+        pastEvaluationsList.appendChild(card);
+    });
+
+    pastEvaluationsList.style.display = 'block';
+}
+
+// Create a card for a past evaluation
+function createPastEvaluationCard(evaluation) {
+    const card = document.createElement('div');
+    card.className = 'question-card';
+    card.style.cursor = 'pointer';
+    card.style.marginBottom = '15px';
+
+    const timestamp = new Date(evaluation.timestamp).toLocaleString();
+    const accuracyPercent = (evaluation.accuracy * 100).toFixed(1);
+    const confidencePercent = (evaluation.average_confidence * 100).toFixed(1);
+
+    card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+                <div style="font-weight: 600; margin-bottom: 8px;">
+                    Evaluation #${evaluation.id} - ${timestamp}
+                </div>
+                <div class="question-meta">
+                    <span class="category-badge">${escapeHtml(evaluation.llm_provider)}</span>
+                    <span>Verifier: ${escapeHtml(evaluation.verifier_type)}</span>
+                    <span>• Questions: ${evaluation.total_questions}</span>
+                    <span>• Accuracy: ${accuracyPercent}%</span>
+                    <span>• Confidence: ${confidencePercent}%</span>
+                </div>
+                <div style="margin-top: 8px; color: #718096; font-size: 0.9em;">
+                    Duration: ${evaluation.duration_seconds.toFixed(2)}s
+                    | Truthful: ${evaluation.truthful_count}
+                    | Untruthful: ${evaluation.untruthful_count}
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-left: 15px;">
+                <button class="btn btn-primary" style="padding: 5px 15px; font-size: 0.9em;" onclick="viewEvaluationDetails(${evaluation.id}); event.stopPropagation();">
+                    View Details
+                </button>
+                <button class="btn btn-danger" style="padding: 5px 15px; font-size: 0.9em;" onclick="deleteEvaluation(${evaluation.id}); event.stopPropagation();">
+                    Delete
+                </button>
+            </div>
+        </div>
+    `;
+
+    return card;
+}
+
+// View evaluation details
+async function viewEvaluationDetails(evaluationId) {
+    showLoading(true, 'Loading evaluation details...');
+
+    try {
+        // Load evaluation summary and question results
+        const [summaryResponse, questionsResponse] = await Promise.all([
+            fetch(`${API_BASE}/api/results/${evaluationId}`),
+            fetch(`${API_BASE}/api/results/${evaluationId}/questions`)
+        ]);
+
+        if (!summaryResponse.ok || !questionsResponse.ok) {
+            throw new Error('Failed to load evaluation details');
+        }
+
+        const summary = await summaryResponse.json();
+        const questionsData = await questionsResponse.json();
+
+        // Transform the data to match the expected format
+        const results = questionsData.question_results.map(qr => ({
+            question: qr.question,
+            question_index: qr.question_index,
+            category: qr.category,
+            llm_answer: qr.llm_answer,
+            verification: {
+                is_truthful: qr.is_truthful,
+                confidence: qr.confidence,
+                reasoning: qr.reasoning,
+                metrics: qr.metrics
+            },
+            duration_seconds: qr.duration_seconds,
+            error: qr.error
+        }));
+
+        // Display results using the existing display function
+        const data = {
+            results: results,
+            summary: {
+                total_questions: summary.total_questions,
+                successful_evaluations: summary.successful_evaluations,
+                truthful_count: summary.truthful_count,
+                untruthful_count: summary.untruthful_count,
+                accuracy: summary.accuracy,
+                average_confidence: summary.average_confidence,
+                total_duration_seconds: summary.duration_seconds,
+                llm_provider: summary.llm_provider,
+                verifier: summary.verifier_type,
+                timestamp: summary.timestamp
+            }
+        };
+
+        displayResults(data);
+
+        // Scroll to results
+        resultsPanel.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        console.error('Error loading evaluation details:', error);
+        alert(`Failed to load evaluation details: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Delete evaluation
+async function deleteEvaluation(evaluationId) {
+    if (!confirm(`Are you sure you want to delete evaluation #${evaluationId}? This cannot be undone.`)) {
+        return;
+    }
+
+    showLoading(true, 'Deleting evaluation...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/results/${evaluationId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        alert('Evaluation deleted successfully');
+
+        // Reload the past evaluations list
+        await loadPastEvaluations();
+
+    } catch (error) {
+        console.error('Error deleting evaluation:', error);
+        alert(`Failed to delete evaluation: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
 }
 
 // Initialize on page load

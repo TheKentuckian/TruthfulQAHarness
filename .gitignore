@@ -24,9 +24,10 @@ ENV/
 Thumbs.db
 
 # Data
-data/cache/
+data/
 *.pkl
 *.pickle
+*.db
 
 # Logs
 *.log

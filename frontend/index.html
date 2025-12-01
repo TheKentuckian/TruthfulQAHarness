@@ -78,7 +78,34 @@
                     <select id="verifier-type">
                         <option value="simple_text" selected>Simple Text (Word Overlap) - Lightweight</option>
                         <option value="word_similarity">Word Similarity (TF-IDF + Cosine) - Requires sklearn</option>
+                        <option value="llm_judge">LLM Judge - Use an LLM to judge truthfulness</option>
                     </select>
+                </div>
+
+                <!-- LLM Judge Configuration (hidden by default) -->
+                <div id="llm-judge-config" style="display: none; margin-top: 15px; padding: 15px; background: #f7fafc; border-left: 3px solid #805ad5; border-radius: 4px;">
+                    <div class="form-group">
+                        <label for="judge-provider">Judge LLM Provider:</label>
+                        <select id="judge-provider">
+                            <option value="lm_studio" selected>Local Model (LM Studio)</option>
+                            <option value="claude">Claude</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="judge-model">Judge Model:</label>
+                        <input type="text" id="judge-model" value="allenai/truthfulqa-judge" placeholder="Model name (e.g., allenai/truthfulqa-judge)">
+                        <small style="display: block; margin-top: 5px; color: #718096;">The model to use for judging answer truthfulness</small>
+                    </div>
+
+                    <!-- LM Studio URL for Judge (shown when judge provider is lm_studio) -->
+                    <div id="judge-lm-studio-config">
+                        <div class="form-group">
+                            <label for="judge-lm-studio-url">Judge LM Studio URL:</label>
+                            <input type="text" id="judge-lm-studio-url" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
+                            <small style="display: block; margin-top: 5px; color: #718096;">The base URL where the judge model is running</small>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -112,6 +139,18 @@
             <div class="summary-card" id="summary-card"></div>
 
             <div class="results-list" id="results-list"></div>
+        </div>
+
+        <div class="past-evaluations-panel" id="past-evaluations-panel">
+            <h2>Past Evaluations</h2>
+            <p class="subtitle">View results from previous evaluation runs</p>
+
+            <div class="action-panel" style="margin-bottom: 20px;">
+                <button id="load-past-evaluations-btn" class="btn btn-primary">Load Past Evaluations</button>
+                <span id="past-evaluations-count" style="margin-left: 15px; color: #718096;"></span>
+            </div>
+
+            <div id="past-evaluations-list" style="display: none;"></div>
         </div>
 
         <div class="loading-overlay" id="loading-overlay" style="display: none;">

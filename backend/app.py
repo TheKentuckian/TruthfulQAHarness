@@ -14,6 +14,7 @@ from backend.models.reward_model import RewardModelFactory
 from backend.services.dataset_loader import TruthfulQALoader
 from backend.services.evaluator import Evaluator
 from backend.services.self_correcting_evaluator import SelfCorrectingEvaluator
+from backend.services.database import get_database
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -33,6 +34,43 @@ app.add_middleware(
 
 # Initialize dataset loader
 dataset_loader = TruthfulQALoader()
+
+
+def create_verifier(verifier_type: str, verifier_config: Dict[str, Any]):
+    """
+    Create a verifier instance, handling special cases like LLM judge.
+
+    Args:
+        verifier_type: Type of verifier
+        verifier_config: Configuration for the verifier
+
+    Returns:
+        Verifier instance
+    """
+    if verifier_type == "llm_judge":
+        # Extract judge LLM configuration from verifier_config
+        judge_provider_type = verifier_config.get("judge_provider", "lm_studio")
+        judge_llm_config = verifier_config.get("judge_llm_config", {})
+
+        # Create a separate LLM provider for the judge
+        judge_llm_provider = LLMProviderFactory.create(
+            judge_provider_type,
+            **judge_llm_config
+        )
+
+        # Create verifier with the judge LLM provider
+        verifier_kwargs = {k: v for k, v in verifier_config.items()
+                         if k not in ["judge_provider", "judge_llm_config"]}
+        return VerifierFactory.create(
+            verifier_type,
+            llm_provider=judge_llm_provider,
+            **verifier_kwargs
+        )
+    else:
+        return VerifierFactory.create(
+            verifier_type,
+            **verifier_config
+        )
 
 
 # Pydantic models for request/response
@@ -168,6 +206,106 @@ async def get_available_reward_models():
     }
 
 
+@app.get("/api/results")
+async def list_evaluation_results(
+    limit: int = 50,
+    offset: int = 0,
+):
+    """
+    List past evaluation results.
+
+    Args:
+        limit: Maximum number of evaluations to return (default: 50)
+        offset: Number of evaluations to skip (default: 0)
+    """
+    try:
+        db = get_database()
+        evaluations = db.list_evaluations(limit=limit, offset=offset)
+        total_count = db.get_evaluation_count()
+
+        return {
+            "evaluations": evaluations,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/results/{evaluation_id}")
+async def get_evaluation_result(evaluation_id: int):
+    """
+    Get a specific evaluation result.
+
+    Args:
+        evaluation_id: The evaluation ID
+    """
+    try:
+        db = get_database()
+        evaluation = db.get_evaluation(evaluation_id)
+
+        if not evaluation:
+            raise HTTPException(status_code=404, detail="Evaluation not found")
+
+        return evaluation
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/results/{evaluation_id}/questions")
+async def get_evaluation_question_results(evaluation_id: int):
+    """
+    Get question-level results for an evaluation.
+
+    Args:
+        evaluation_id: The evaluation ID
+    """
+    try:
+        db = get_database()
+
+        # Check if evaluation exists
+        evaluation = db.get_evaluation(evaluation_id)
+        if not evaluation:
+            raise HTTPException(status_code=404, detail="Evaluation not found")
+
+        # Get question results
+        question_results = db.get_question_results(evaluation_id)
+
+        return {
+            "evaluation_id": evaluation_id,
+            "question_results": question_results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/results/{evaluation_id}")
+async def delete_evaluation_result(evaluation_id: int):
+    """
+    Delete an evaluation and its results.
+
+    Args:
+        evaluation_id: The evaluation ID
+    """
+    try:
+        db = get_database()
+        deleted = db.delete_evaluation(evaluation_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Evaluation not found")
+
+        return {"success": True, "message": f"Evaluation {evaluation_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/evaluate/single")
 async def evaluate_single_question(request: SingleEvaluationRequest):
     """
@@ -185,9 +323,9 @@ async def evaluate_single_question(request: SingleEvaluationRequest):
             request.config.llm_provider,
             **request.config.llm_config
         )
-        verifier = VerifierFactory.create(
+        verifier = create_verifier(
             request.config.verifier_type,
-            **request.config.verifier_config
+            request.config.verifier_config
         )
 
         # Create evaluator
@@ -236,9 +374,9 @@ async def evaluate_batch_questions(request: BatchEvaluationRequest):
             request.config.llm_provider,
             **request.config.llm_config
         )
-        verifier = VerifierFactory.create(
+        verifier = create_verifier(
             request.config.verifier_type,
-            **request.config.verifier_config
+            request.config.verifier_config
         )
 
         # Create evaluator
@@ -250,6 +388,20 @@ async def evaluate_batch_questions(request: BatchEvaluationRequest):
             max_tokens=request.config.max_tokens,
             temperature=request.config.temperature,
         )
+
+        # Save results to database
+        try:
+            db = get_database()
+            evaluation_id = db.save_evaluation(
+                summary=results['summary'],
+                results=results['results'],
+                config=request.config.dict()
+            )
+            results['evaluation_id'] = evaluation_id
+            print(f"Saved evaluation to database with ID: {evaluation_id}")
+        except Exception as e:
+            print(f"Warning: Failed to save evaluation to database: {str(e)}")
+            # Don't fail the request if database save fails
 
         return results
 
@@ -279,9 +431,9 @@ async def evaluate_single_with_self_correction(request: SelfCorrectionRequest):
         )
 
         # Create verifier
-        verifier = VerifierFactory.create(
+        verifier = create_verifier(
             request.config.verifier_type,
-            **request.config.verifier_config
+            request.config.verifier_config
         )
 
         # Create reward model
@@ -346,9 +498,9 @@ async def evaluate_batch_with_self_correction(request: SelfCorrectionRequest):
         )
 
         # Create verifier
-        verifier = VerifierFactory.create(
+        verifier = create_verifier(
             request.config.verifier_type,
-            **request.config.verifier_config
+            request.config.verifier_config
         )
 
         # Create reward model
