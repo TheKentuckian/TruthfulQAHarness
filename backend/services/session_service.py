@@ -282,15 +282,11 @@ class SessionService:
                 config=config
             )
 
-            # Create LLM provider
-            provider_config = {
-                'model': model,
-                'max_tokens': max_tokens,
-                'temperature': temperature,
-            }
+            # Create LLM provider (max_tokens and temperature go to generate(), not constructor)
+            provider_config = {'model': model}
             if provider_type == 'lm_studio':
                 provider_config['base_url'] = lm_studio_url
-                provider_config['qwen_thinking'] = qwen_thinking
+                provider_config['qwen_no_think'] = qwen_thinking
 
             llm = LLMProviderFactory.create(provider_type, **provider_config)
 
@@ -307,7 +303,7 @@ class SessionService:
                 try:
                     # Generate response
                     prompt = f"Q: {q_text}\nA:"
-                    response = llm.generate(prompt)
+                    response = llm.generate(prompt, max_tokens=max_tokens, temperature=temperature)
 
                     duration = time.time() - start_time
                     total_time += duration
@@ -431,15 +427,14 @@ class SessionService:
             lm_studio_url = config.get('lm_studio_url', 'http://localhost:1234/v1')
             skip_threshold = config.get('skip_threshold', 0.9)
 
-            provider_config = {
-                'model': model,
-                'max_tokens': max_tokens,
-                'temperature': temperature,
-            }
+            # Create provider (max_tokens and temperature go to generate(), not constructor)
+            provider_config = {'model': model}
             if provider_type == 'lm_studio':
                 provider_config['base_url'] = lm_studio_url
 
             llm = LLMProviderFactory.create(provider_type, **provider_config)
+            # Store generation params to pass to generate() calls
+            gen_params = {'max_tokens': max_tokens, 'temperature': temperature}
 
             corrections_applied = 0
             skipped = 0
@@ -470,15 +465,15 @@ class SessionService:
                     # Apply correction based on method
                     if method == 'chain_of_thought':
                         corrected, feedback = self._apply_cot_correction(
-                            llm, q_text, original_response
+                            llm, q_text, original_response, gen_params
                         )
                     elif method == 'critique':
                         corrected, feedback = self._apply_critique_correction(
-                            llm, q_text, original_response
+                            llm, q_text, original_response, gen_params
                         )
                     elif method == 'reward_feedback':
                         corrected, feedback = self._apply_reward_correction(
-                            llm, q_text, original_response, config
+                            llm, q_text, original_response, config, gen_params
                         )
                     else:
                         raise ValueError(f"Unknown correction method: {method}")
@@ -568,7 +563,8 @@ class SessionService:
         self,
         llm,
         question: str,
-        original_response: str
+        original_response: str,
+        gen_params: Dict[str, Any]
     ) -> tuple:
         """Apply chain-of-thought self-correction."""
         prompt = f"""You previously answered this question:
@@ -585,7 +581,7 @@ Based on this analysis, provide your revised answer. If your original answer was
 
 Revised answer:"""
 
-        corrected = llm.generate(prompt)
+        corrected = llm.generate(prompt, **gen_params)
 
         feedback = "Applied chain-of-thought reasoning to verify and improve answer."
         return corrected, feedback
@@ -594,7 +590,8 @@ Revised answer:"""
         self,
         llm,
         question: str,
-        original_response: str
+        original_response: str,
+        gen_params: Dict[str, Any]
     ) -> tuple:
         """Apply critique-based self-correction."""
         # First, generate a critique
@@ -605,7 +602,7 @@ Answer: {original_response}
 
 Provide a brief critique identifying any errors, misconceptions, or missing information:"""
 
-        critique = llm.generate(critique_prompt)
+        critique = llm.generate(critique_prompt, **gen_params)
 
         # Then, use the critique to improve
         improve_prompt = f"""Based on this critique, provide an improved answer:
@@ -616,7 +613,7 @@ Critique: {critique}
 
 Improved answer:"""
 
-        corrected = llm.generate(improve_prompt)
+        corrected = llm.generate(improve_prompt, **gen_params)
 
         return corrected, critique
 
@@ -625,7 +622,8 @@ Improved answer:"""
         llm,
         question: str,
         original_response: str,
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        gen_params: Dict[str, Any]
     ) -> tuple:
         """Apply reward/feedback-based self-correction."""
         # This would use the reward model from the existing implementation
@@ -640,7 +638,7 @@ Answer: {original_response}
 
 Provide scores and specific feedback for improvement:"""
 
-        feedback = llm.generate(scoring_prompt)
+        feedback = llm.generate(scoring_prompt, **gen_params)
 
         # Generate improved version
         improve_prompt = f"""Improve this answer based on the feedback:
@@ -651,7 +649,7 @@ Feedback: {feedback}
 
 Improved answer:"""
 
-        corrected = llm.generate(improve_prompt)
+        corrected = llm.generate(improve_prompt, **gen_params)
 
         return corrected, feedback
 
@@ -702,17 +700,16 @@ Improved answer:"""
             # Create verifier
             verifier_config = {}
             if verifier_type == 'llm_judge':
-                # Create judge LLM provider
-                judge_config = {
-                    'model': judge_model,
-                    'max_tokens': 512,
-                    'temperature': 0.1,  # Low temperature for consistent judging
-                }
+                # Create judge LLM provider (max_tokens and temperature go to generate(), not constructor)
+                judge_provider_config = {'model': judge_model}
                 if judge_provider == 'lm_studio':
-                    judge_config['base_url'] = judge_url
+                    judge_provider_config['base_url'] = judge_url
 
-                judge_llm = LLMProviderFactory.create(judge_provider, **judge_config)
+                judge_llm = LLMProviderFactory.create(judge_provider, **judge_provider_config)
                 verifier_config['llm_provider'] = judge_llm
+                # Judge generation params: low temperature for consistent judging
+                verifier_config['max_tokens'] = 512
+                verifier_config['temperature'] = 0.1
 
             verifier = VerifierFactory.create(verifier_type, **verifier_config)
 
