@@ -15,6 +15,7 @@ from backend.services.dataset_loader import TruthfulQALoader
 from backend.services.evaluator import Evaluator
 from backend.services.self_correcting_evaluator import SelfCorrectingEvaluator
 from backend.services.database import get_database
+from backend.services.session_service import get_session_service
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -120,6 +121,78 @@ class SelfCorrectionRequest(BaseModel):
     seed: Optional[int] = Field(default=None, description="Random seed for sampling")
     question_indices: Optional[List[int]] = Field(default=None, description="Specific question indices")
     config: SelfCorrectionConfig = Field(default_factory=SelfCorrectionConfig)
+
+
+# ============================================
+# Session Models
+# ============================================
+
+class CreateSessionRequest(BaseModel):
+    """Request to create a new testing session."""
+    name: str = Field(description="Session name")
+    config: Optional[Dict[str, Any]] = Field(default=None, description="Optional configuration")
+    notes: Optional[str] = Field(default=None, description="Optional notes")
+
+
+class UpdateSessionRequest(BaseModel):
+    """Request to update a session."""
+    name: Optional[str] = Field(default=None, description="New session name")
+    notes: Optional[str] = Field(default=None, description="New notes")
+
+
+class GatherPhaseConfig(BaseModel):
+    """Configuration for Phase 1: Gather questions."""
+    sample_size: int = Field(default=10, description="Number of questions to sample")
+    seed: Optional[int] = Field(default=None, description="Random seed for reproducibility")
+    use_all: bool = Field(default=False, description="Use all questions instead of sampling")
+
+
+class GeneratePhaseConfig(BaseModel):
+    """Configuration for Phase 2: Generate responses."""
+    provider: str = Field(default="claude", description="LLM provider (claude or lm_studio)")
+    model: Optional[str] = Field(default=None, description="Model name")
+    max_tokens: int = Field(default=1024, description="Max tokens for generation")
+    temperature: float = Field(default=1.0, description="Temperature for generation")
+    lm_studio_url: str = Field(default="http://localhost:1234/v1", description="LM Studio URL")
+    qwen_thinking: bool = Field(default=False, description="Enable Qwen thinking mode")
+
+
+class CorrectPhaseConfig(BaseModel):
+    """Configuration for Phase 3: Self-correction."""
+    method: str = Field(
+        default="none",
+        description="Correction method: none, chain_of_thought, critique, reward_feedback"
+    )
+    provider: str = Field(default="claude", description="LLM provider for correction")
+    model: Optional[str] = Field(default=None, description="Model name")
+    max_tokens: int = Field(default=1024, description="Max tokens")
+    temperature: float = Field(default=1.0, description="Temperature")
+    lm_studio_url: str = Field(default="http://localhost:1234/v1", description="LM Studio URL")
+    skip_threshold: float = Field(default=0.9, description="Skip correction if confidence above this")
+
+
+class ValidatePhaseConfig(BaseModel):
+    """Configuration for Phase 4: Validation."""
+    verifier_type: str = Field(default="llm_judge", description="Verifier type")
+    judge_provider: str = Field(default="lm_studio", description="Judge LLM provider")
+    judge_model: Optional[str] = Field(default=None, description="Judge model name")
+    judge_url: str = Field(default="http://localhost:1234/v1", description="Judge LM Studio URL")
+
+
+class RunPhaseRequest(BaseModel):
+    """Request to run a specific phase."""
+    phase_number: int = Field(description="Phase number (1-4)")
+    config: Dict[str, Any] = Field(description="Phase configuration")
+    rerun: bool = Field(default=False, description="Re-run phase (clears downstream)")
+
+
+class FullSessionRequest(BaseModel):
+    """Request to run a complete session."""
+    name: str = Field(description="Session name")
+    gather: GatherPhaseConfig = Field(default_factory=GatherPhaseConfig)
+    generate: GeneratePhaseConfig = Field(default_factory=GeneratePhaseConfig)
+    correct: Optional[CorrectPhaseConfig] = Field(default=None, description="Optional correction config")
+    validate: ValidatePhaseConfig = Field(default_factory=ValidatePhaseConfig)
 
 
 # API Endpoints
@@ -529,6 +602,349 @@ async def evaluate_batch_with_self_correction(request: SelfCorrectionRequest):
 
         return results
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Session API Endpoints
+# ============================================
+
+@app.post("/api/sessions")
+async def create_session(request: CreateSessionRequest):
+    """
+    Create a new testing session.
+
+    Args:
+        request: Session creation request with name and optional config
+    """
+    try:
+        service = get_session_service()
+        session = service.create_session(
+            name=request.name,
+            config=request.config,
+            notes=request.notes
+        )
+        return session
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions")
+async def list_sessions(limit: int = 50, offset: int = 0):
+    """
+    List all testing sessions.
+
+    Args:
+        limit: Maximum number of sessions to return
+        offset: Number of sessions to skip
+    """
+    try:
+        service = get_session_service()
+        sessions = service.list_sessions(limit=limit, offset=offset)
+        db = get_database()
+        total_count = db.get_session_count()
+
+        return {
+            "sessions": sessions,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session(session_id: int):
+    """
+    Get a specific session by ID.
+
+    Args:
+        session_id: The session ID
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sessions/{session_id}")
+async def update_session(session_id: int, request: UpdateSessionRequest):
+    """
+    Update a session's metadata.
+
+    Args:
+        session_id: The session ID
+        request: Update request with new name/notes
+    """
+    try:
+        service = get_session_service()
+        success = service.update_session(
+            session_id,
+            name=request.name,
+            notes=request.notes
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return service.get_session(session_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: int):
+    """
+    Delete a session and all its data.
+
+    Args:
+        session_id: The session ID
+    """
+    try:
+        service = get_session_service()
+        success = service.delete_session(session_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return {"success": True, "message": f"Session {session_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}/questions")
+async def get_session_questions(session_id: int):
+    """
+    Get questions for a session.
+
+    Args:
+        session_id: The session ID
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        questions = service.get_session_questions(session_id)
+        return {
+            "session_id": session_id,
+            "questions": questions,
+            "count": len(questions)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}/responses")
+async def get_session_responses(
+    session_id: int,
+    phase_number: Optional[int] = None
+):
+    """
+    Get responses for a session, optionally filtered by phase.
+
+    Args:
+        session_id: The session ID
+        phase_number: Optional phase number to filter by
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        responses = service.get_session_responses(session_id, phase_number)
+        return {
+            "session_id": session_id,
+            "phase_number": phase_number,
+            "responses": responses,
+            "count": len(responses)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/phases/{phase_number}/run")
+async def run_session_phase(
+    session_id: int,
+    phase_number: int,
+    config: Dict[str, Any]
+):
+    """
+    Run a specific phase of a session.
+
+    Args:
+        session_id: The session ID
+        phase_number: Phase number (1-4)
+        config: Phase configuration
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = service.run_phase(session_id, phase_number, config)
+        return {
+            "session_id": session_id,
+            "phase_number": phase_number,
+            "result": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/phases/{phase_number}/rerun")
+async def rerun_session_phase(
+    session_id: int,
+    phase_number: int,
+    config: Dict[str, Any]
+):
+    """
+    Re-run a phase, clearing it and all downstream phases first.
+
+    Args:
+        session_id: The session ID
+        phase_number: Phase number (1-4)
+        config: Phase configuration
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = service.rerun_phase(session_id, phase_number, config)
+        return {
+            "session_id": session_id,
+            "phase_number": phase_number,
+            "result": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}/phases/{phase_number}")
+async def get_session_phase(session_id: int, phase_number: int):
+    """
+    Get details of a specific phase.
+
+    Args:
+        session_id: The session ID
+        phase_number: Phase number (1-4)
+    """
+    try:
+        db = get_database()
+        phase = db.get_phase(session_id, phase_number)
+
+        if not phase:
+            raise HTTPException(status_code=404, detail="Phase not found")
+
+        return phase
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/run-full")
+async def run_full_session(request: FullSessionRequest):
+    """
+    Run a complete session through all phases.
+
+    Args:
+        request: Full session configuration
+    """
+    try:
+        service = get_session_service()
+
+        # Convert Pydantic models to dicts
+        gather_config = request.gather.dict()
+        generate_config = request.generate.dict()
+        correct_config = request.correct.dict() if request.correct else {'method': 'none'}
+        validate_config = request.validate.dict()
+
+        result = service.run_full_session(
+            name=request.name,
+            gather_config=gather_config,
+            generate_config=generate_config,
+            correct_config=correct_config,
+            validate_config=validate_config
+        )
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}/summary")
+async def get_session_summary(session_id: int):
+    """
+    Get a summary of session results across all phases.
+
+    Args:
+        session_id: The session ID
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Build summary from phase results
+        phases_summary = {}
+        for phase_num, phase_data in session.get('phases', {}).items():
+            phases_summary[phase_num] = {
+                'status': phase_data.get('status'),
+                'results': phase_data.get('results'),
+                'started_at': phase_data.get('started_at'),
+                'completed_at': phase_data.get('completed_at'),
+                'error': phase_data.get('error')
+            }
+
+        return {
+            "session_id": session_id,
+            "name": session.get('name'),
+            "status": session.get('status'),
+            "total_questions": session.get('total_questions'),
+            "created_at": session.get('created_at'),
+            "updated_at": session.get('updated_at'),
+            "phases": phases_summary
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -13,6 +13,15 @@
             <p class="subtitle">Evaluate LLM truthfulness using the TruthfulQA dataset</p>
         </header>
 
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="quick-eval">Quick Evaluation</button>
+            <button class="nav-tab" data-tab="sessions">Testing Sessions</button>
+        </nav>
+
+        <!-- Quick Evaluation Tab Content -->
+        <div id="quick-eval-tab" class="tab-content active">
+
         <div class="config-panel">
             <h2>Configuration</h2>
 
@@ -152,6 +161,239 @@
 
             <div id="past-evaluations-list" style="display: none;"></div>
         </div>
+
+        </div><!-- End Quick Evaluation Tab -->
+
+        <!-- Sessions Tab Content -->
+        <div id="sessions-tab" class="tab-content">
+
+            <!-- Session List -->
+            <div class="sessions-list-panel">
+                <div class="sessions-header">
+                    <h2>Testing Sessions</h2>
+                    <button id="create-session-btn" class="btn btn-primary">+ New Session</button>
+                </div>
+
+                <div id="sessions-list" class="sessions-list">
+                    <p class="no-sessions">No sessions yet. Create one to get started.</p>
+                </div>
+
+                <div class="pagination" id="sessions-pagination" style="display: none;">
+                    <button id="sessions-prev-btn" class="btn btn-primary" disabled>← Previous</button>
+                    <span id="sessions-page-info">Page 1</span>
+                    <button id="sessions-next-btn" class="btn btn-primary">Next →</button>
+                </div>
+            </div>
+
+            <!-- Active Session Panel (hidden by default) -->
+            <div id="active-session-panel" class="active-session-panel" style="display: none;">
+                <div class="session-header">
+                    <div class="session-title">
+                        <h2 id="active-session-name">Session Name</h2>
+                        <span id="active-session-id" class="session-id">#1</span>
+                        <span id="active-session-status" class="session-status">active</span>
+                    </div>
+                    <div class="session-actions">
+                        <button id="back-to-sessions-btn" class="btn btn-primary">← Back to Sessions</button>
+                        <button id="delete-session-btn" class="btn btn-danger">Delete Session</button>
+                    </div>
+                </div>
+
+                <!-- Phase Pipeline -->
+                <div class="phase-pipeline">
+                    <h3>Phase Pipeline</h3>
+                    <div class="pipeline-container">
+                        <div class="phase-box" data-phase="1">
+                            <div class="phase-number">1</div>
+                            <div class="phase-name">GATHER</div>
+                            <div class="phase-status-icon">○</div>
+                            <div class="phase-time">pending</div>
+                        </div>
+                        <div class="phase-arrow">→</div>
+                        <div class="phase-box" data-phase="2">
+                            <div class="phase-number">2</div>
+                            <div class="phase-name">GENERATE</div>
+                            <div class="phase-status-icon">○</div>
+                            <div class="phase-time">pending</div>
+                        </div>
+                        <div class="phase-arrow">→</div>
+                        <div class="phase-box" data-phase="3">
+                            <div class="phase-number">3</div>
+                            <div class="phase-name">CORRECT</div>
+                            <div class="phase-status-icon">○</div>
+                            <div class="phase-time">pending</div>
+                        </div>
+                        <div class="phase-arrow">→</div>
+                        <div class="phase-box" data-phase="4">
+                            <div class="phase-number">4</div>
+                            <div class="phase-name">VALIDATE</div>
+                            <div class="phase-status-icon">○</div>
+                            <div class="phase-time">pending</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase Configuration -->
+                <div class="phase-config-panel">
+                    <h3>Phase Configuration</h3>
+
+                    <!-- Phase 1: Gather -->
+                    <div class="phase-config" data-phase-config="1">
+                        <h4>Phase 1: Gather Questions</h4>
+                        <div class="form-group">
+                            <label for="session-sample-size">Sample Size:</label>
+                            <input type="number" id="session-sample-size" value="10" min="1" max="817">
+                        </div>
+                        <div class="form-group">
+                            <label for="session-seed">Random Seed (optional):</label>
+                            <input type="number" id="session-seed" placeholder="Leave empty for random">
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="session-use-all"> Use all 817 questions
+                            </label>
+                        </div>
+                        <div class="phase-actions">
+                            <button class="btn btn-success run-phase-btn" data-phase="1">Run Phase 1</button>
+                            <button class="btn btn-primary rerun-phase-btn" data-phase="1" style="display: none;">Re-run Phase 1</button>
+                        </div>
+                    </div>
+
+                    <!-- Phase 2: Generate -->
+                    <div class="phase-config" data-phase-config="2">
+                        <h4>Phase 2: Generate Responses</h4>
+                        <div class="form-group">
+                            <label for="session-gen-provider">Provider:</label>
+                            <select id="session-gen-provider">
+                                <option value="claude">Claude</option>
+                                <option value="lm_studio">Local Model (LM Studio)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="session-gen-model">Model:</label>
+                            <input type="text" id="session-gen-model" value="claude-sonnet-4-5-20250929" placeholder="Model name">
+                        </div>
+                        <div class="form-group">
+                            <label for="session-gen-max-tokens">Max Tokens:</label>
+                            <input type="number" id="session-gen-max-tokens" value="1024" min="1" max="4096">
+                        </div>
+                        <div class="form-group">
+                            <label for="session-gen-temperature">Temperature:</label>
+                            <input type="number" id="session-gen-temperature" value="1.0" min="0" max="2" step="0.1">
+                        </div>
+                        <div id="session-gen-lm-config" style="display: none;">
+                            <div class="form-group">
+                                <label for="session-gen-lm-url">LM Studio URL:</label>
+                                <input type="text" id="session-gen-lm-url" value="http://localhost:1234/v1">
+                            </div>
+                        </div>
+                        <div class="phase-actions">
+                            <button class="btn btn-success run-phase-btn" data-phase="2" disabled>Run Phase 2</button>
+                            <button class="btn btn-primary rerun-phase-btn" data-phase="2" style="display: none;">Re-run Phase 2</button>
+                        </div>
+                    </div>
+
+                    <!-- Phase 3: Correct -->
+                    <div class="phase-config" data-phase-config="3">
+                        <h4>Phase 3: Self-Correction (Optional)</h4>
+                        <div class="form-group">
+                            <label for="session-correct-method">Correction Method:</label>
+                            <select id="session-correct-method">
+                                <option value="none">None (Skip)</option>
+                                <option value="chain_of_thought">Chain of Thought</option>
+                                <option value="critique">Critique-based</option>
+                                <option value="reward_feedback">Reward/Feedback</option>
+                            </select>
+                        </div>
+                        <div id="session-correct-config" style="display: none;">
+                            <div class="form-group">
+                                <label for="session-correct-provider">Provider:</label>
+                                <select id="session-correct-provider">
+                                    <option value="claude">Claude</option>
+                                    <option value="lm_studio">Local Model (LM Studio)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="session-correct-model">Model:</label>
+                                <input type="text" id="session-correct-model" value="claude-sonnet-4-5-20250929">
+                            </div>
+                            <div id="session-correct-lm-config" style="display: none;">
+                                <div class="form-group">
+                                    <label for="session-correct-lm-url">LM Studio URL:</label>
+                                    <input type="text" id="session-correct-lm-url" value="http://localhost:1234/v1">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="phase-actions">
+                            <button class="btn btn-success run-phase-btn" data-phase="3" disabled>Run Phase 3</button>
+                            <button class="btn btn-primary rerun-phase-btn" data-phase="3" style="display: none;">Re-run Phase 3</button>
+                        </div>
+                    </div>
+
+                    <!-- Phase 4: Validate -->
+                    <div class="phase-config" data-phase-config="4">
+                        <h4>Phase 4: Validation</h4>
+                        <div class="form-group">
+                            <label for="session-validate-verifier">Verifier Type:</label>
+                            <select id="session-validate-verifier">
+                                <option value="llm_judge" selected>LLM Judge</option>
+                                <option value="simple_text">Simple Text (Word Overlap)</option>
+                                <option value="word_similarity">Word Similarity (TF-IDF)</option>
+                            </select>
+                        </div>
+                        <div id="session-validate-llm-config">
+                            <div class="form-group">
+                                <label for="session-validate-provider">Judge Provider:</label>
+                                <select id="session-validate-provider">
+                                    <option value="lm_studio" selected>Local Model (LM Studio)</option>
+                                    <option value="claude">Claude</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="session-validate-model">Judge Model:</label>
+                                <input type="text" id="session-validate-model" value="" placeholder="Model name">
+                            </div>
+                            <div id="session-validate-lm-config">
+                                <div class="form-group">
+                                    <label for="session-validate-lm-url">Judge LM Studio URL:</label>
+                                    <input type="text" id="session-validate-lm-url" value="http://localhost:1234/v1">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="phase-actions">
+                            <button class="btn btn-success run-phase-btn" data-phase="4" disabled>Run Phase 4</button>
+                            <button class="btn btn-primary rerun-phase-btn" data-phase="4" style="display: none;">Re-run Phase 4</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Session Results -->
+                <div id="session-results-panel" class="session-results-panel" style="display: none;">
+                    <h3>Session Results</h3>
+                    <div id="session-results-summary" class="summary-card"></div>
+                    <div id="session-results-list" class="results-list"></div>
+                </div>
+            </div>
+
+            <!-- Create Session Modal -->
+            <div id="create-session-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <h3>Create New Session</h3>
+                    <div class="form-group">
+                        <label for="new-session-name">Session Name:</label>
+                        <input type="text" id="new-session-name" placeholder="e.g., Claude Baseline Test">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-session-notes">Notes (optional):</label>
+                        <textarea id="new-session-notes" rows="3" placeholder="Optional notes about this session"></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="confirm-create-session-btn" class="btn btn-success">Create Session</button>
+                        <button id="cancel-create-session-btn" class="btn btn-danger">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div><!-- End Sessions Tab -->
 
         <div class="loading-overlay" id="loading-overlay" style="display: none;">
             <div class="spinner"></div>

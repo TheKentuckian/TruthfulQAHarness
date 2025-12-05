@@ -1,7 +1,7 @@
-"""SQLite database service for storing evaluation results."""
+"""SQLite database service for storing evaluation results and sessions."""
 import sqlite3
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 from backend.config import settings
@@ -87,6 +87,104 @@ class EvaluationDatabase:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_question_results_evaluation_id
                 ON question_results(evaluation_id)
+            """)
+
+            # ============================================
+            # Session Management Tables
+            # ============================================
+
+            # Sessions table - top-level session container
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    total_questions INTEGER DEFAULT 0,
+                    config_json TEXT,
+                    notes TEXT
+                )
+            """)
+
+            # Session phases - tracks each phase execution
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_phases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    phase_number INTEGER NOT NULL,
+                    phase_type TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    started_at TEXT,
+                    completed_at TEXT,
+                    config_json TEXT,
+                    results_json TEXT,
+                    error TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    UNIQUE(session_id, phase_number)
+                )
+            """)
+
+            # Session questions - persisted question samples
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_questions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    question_index INTEGER,
+                    question TEXT NOT NULL,
+                    category TEXT,
+                    correct_answers_json TEXT,
+                    incorrect_answers_json TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Session responses - per-question results across phases
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_responses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    question_id INTEGER NOT NULL,
+                    phase_id INTEGER NOT NULL,
+                    phase_number INTEGER NOT NULL,
+                    response TEXT,
+                    is_truthful INTEGER,
+                    confidence REAL,
+                    reasoning TEXT,
+                    metrics_json TEXT,
+                    correction_feedback TEXT,
+                    duration_seconds REAL,
+                    error TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (question_id) REFERENCES session_questions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (phase_id) REFERENCES session_phases(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Session indexes
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_created_at
+                ON sessions(created_at DESC)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_phases_session_id
+                ON session_phases(session_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_questions_session_id
+                ON session_questions(session_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_responses_session_id
+                ON session_responses(session_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_responses_question_id
+                ON session_responses(question_id)
             """)
 
             conn.commit()
@@ -365,6 +463,591 @@ class EvaluationDatabase:
         except Exception as e:
             conn.rollback()
             raise RuntimeError(f"Failed to delete evaluation: {str(e)}")
+        finally:
+            conn.close()
+
+    # ============================================
+    # Session Management Methods
+    # ============================================
+
+    def create_session(
+        self,
+        name: str,
+        config: Dict[str, Any] = None,
+        notes: str = None
+    ) -> int:
+        """
+        Create a new testing session.
+
+        Args:
+            name: Session name
+            config: Optional configuration dict
+            notes: Optional notes
+
+        Returns:
+            The ID of the created session
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            cursor.execute("""
+                INSERT INTO sessions (name, created_at, updated_at, status, config_json, notes)
+                VALUES (?, ?, ?, 'active', ?, ?)
+            """, (name, now, now, json.dumps(config) if config else None, notes))
+
+            session_id = cursor.lastrowid
+
+            # Initialize phase records
+            phase_types = ['gather', 'generate', 'correct', 'validate']
+            for i, phase_type in enumerate(phase_types, 1):
+                cursor.execute("""
+                    INSERT INTO session_phases (session_id, phase_number, phase_type, status)
+                    VALUES (?, ?, ?, 'pending')
+                """, (session_id, i, phase_type))
+
+            conn.commit()
+            print(f"Created session {session_id}: {name}")
+            return session_id
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to create session: {str(e)}")
+        finally:
+            conn.close()
+
+    def get_session(self, session_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a session by ID with its phases.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            Session dict with phases, or None if not found
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Get session
+            cursor.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            session = dict(row)
+            if session.get('config_json'):
+                session['config'] = json.loads(session['config_json'])
+                del session['config_json']
+
+            # Get phases
+            cursor.execute("""
+                SELECT * FROM session_phases
+                WHERE session_id = ?
+                ORDER BY phase_number
+            """, (session_id,))
+
+            phases = {}
+            for phase_row in cursor.fetchall():
+                phase = dict(phase_row)
+                if phase.get('config_json'):
+                    phase['config'] = json.loads(phase['config_json'])
+                    del phase['config_json']
+                if phase.get('results_json'):
+                    phase['results'] = json.loads(phase['results_json'])
+                    del phase['results_json']
+                phases[phase['phase_number']] = phase
+
+            session['phases'] = phases
+            return session
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get session: {str(e)}")
+        finally:
+            conn.close()
+
+    def update_session(
+        self,
+        session_id: int,
+        name: str = None,
+        status: str = None,
+        total_questions: int = None,
+        notes: str = None,
+        config: Dict[str, Any] = None
+    ) -> bool:
+        """Update session fields."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            updates = ["updated_at = ?"]
+            params = [datetime.now().isoformat()]
+
+            if name is not None:
+                updates.append("name = ?")
+                params.append(name)
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+            if total_questions is not None:
+                updates.append("total_questions = ?")
+                params.append(total_questions)
+            if notes is not None:
+                updates.append("notes = ?")
+                params.append(notes)
+            if config is not None:
+                updates.append("config_json = ?")
+                params.append(json.dumps(config))
+
+            params.append(session_id)
+
+            cursor.execute(f"""
+                UPDATE sessions SET {', '.join(updates)} WHERE id = ?
+            """, params)
+
+            conn.commit()
+            return cursor.rowcount > 0
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to update session: {str(e)}")
+        finally:
+            conn.close()
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """List sessions with phase status summary."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT * FROM sessions
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+
+            sessions = []
+            for row in cursor.fetchall():
+                session = dict(row)
+                if session.get('config_json'):
+                    session['config'] = json.loads(session['config_json'])
+                    del session['config_json']
+
+                # Get phase statuses
+                cursor.execute("""
+                    SELECT phase_number, phase_type, status
+                    FROM session_phases
+                    WHERE session_id = ?
+                    ORDER BY phase_number
+                """, (session['id'],))
+
+                session['phase_statuses'] = {
+                    row['phase_number']: row['status']
+                    for row in cursor.fetchall()
+                }
+                sessions.append(session)
+
+            return sessions
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to list sessions: {str(e)}")
+        finally:
+            conn.close()
+
+    def delete_session(self, session_id: int) -> bool:
+        """Delete a session and all related data."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Delete in order due to foreign keys (if CASCADE not working)
+            cursor.execute("DELETE FROM session_responses WHERE session_id = ?", (session_id,))
+            cursor.execute("DELETE FROM session_questions WHERE session_id = ?", (session_id,))
+            cursor.execute("DELETE FROM session_phases WHERE session_id = ?", (session_id,))
+            cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+            conn.commit()
+            deleted = cursor.rowcount > 0
+            if deleted:
+                print(f"Deleted session {session_id}")
+            return deleted
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to delete session: {str(e)}")
+        finally:
+            conn.close()
+
+    # ============================================
+    # Session Phase Methods
+    # ============================================
+
+    def get_phase(self, session_id: int, phase_number: int) -> Optional[Dict[str, Any]]:
+        """Get a specific phase."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM session_phases
+                WHERE session_id = ? AND phase_number = ?
+            """, (session_id, phase_number))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            phase = dict(row)
+            if phase.get('config_json'):
+                phase['config'] = json.loads(phase['config_json'])
+                del phase['config_json']
+            if phase.get('results_json'):
+                phase['results'] = json.loads(phase['results_json'])
+                del phase['results_json']
+
+            return phase
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get phase: {str(e)}")
+        finally:
+            conn.close()
+
+    def update_phase(
+        self,
+        session_id: int,
+        phase_number: int,
+        status: str = None,
+        started_at: str = None,
+        completed_at: str = None,
+        config: Dict[str, Any] = None,
+        results: Dict[str, Any] = None,
+        error: str = None
+    ) -> Tuple[bool, int]:
+        """
+        Update a phase.
+
+        Returns:
+            Tuple of (success, phase_id)
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            updates = []
+            params = []
+
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+            if started_at is not None:
+                updates.append("started_at = ?")
+                params.append(started_at)
+            if completed_at is not None:
+                updates.append("completed_at = ?")
+                params.append(completed_at)
+            if config is not None:
+                updates.append("config_json = ?")
+                params.append(json.dumps(config))
+            if results is not None:
+                updates.append("results_json = ?")
+                params.append(json.dumps(results))
+            if error is not None:
+                updates.append("error = ?")
+                params.append(error)
+
+            if not updates:
+                # Get phase ID even if no updates
+                cursor.execute("""
+                    SELECT id FROM session_phases
+                    WHERE session_id = ? AND phase_number = ?
+                """, (session_id, phase_number))
+                row = cursor.fetchone()
+                return (True, row['id']) if row else (False, 0)
+
+            params.extend([session_id, phase_number])
+
+            cursor.execute(f"""
+                UPDATE session_phases
+                SET {', '.join(updates)}
+                WHERE session_id = ? AND phase_number = ?
+            """, params)
+
+            # Get phase ID
+            cursor.execute("""
+                SELECT id FROM session_phases
+                WHERE session_id = ? AND phase_number = ?
+            """, (session_id, phase_number))
+            row = cursor.fetchone()
+            phase_id = row['id'] if row else 0
+
+            conn.commit()
+            return (cursor.rowcount > 0, phase_id)
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to update phase: {str(e)}")
+        finally:
+            conn.close()
+
+    def reset_phase(self, session_id: int, phase_number: int) -> bool:
+        """Reset a phase and clear downstream phases."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Clear responses for this phase and downstream
+            cursor.execute("""
+                DELETE FROM session_responses
+                WHERE session_id = ? AND phase_number >= ?
+            """, (session_id, phase_number))
+
+            # Reset this phase and downstream phases
+            cursor.execute("""
+                UPDATE session_phases
+                SET status = 'pending',
+                    started_at = NULL,
+                    completed_at = NULL,
+                    config_json = NULL,
+                    results_json = NULL,
+                    error = NULL
+                WHERE session_id = ? AND phase_number >= ?
+            """, (session_id, phase_number))
+
+            # If resetting phase 1, also clear questions
+            if phase_number == 1:
+                cursor.execute("""
+                    DELETE FROM session_questions WHERE session_id = ?
+                """, (session_id,))
+                cursor.execute("""
+                    UPDATE sessions SET total_questions = 0 WHERE id = ?
+                """, (session_id,))
+
+            conn.commit()
+            print(f"Reset session {session_id} phases {phase_number}-4")
+            return True
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to reset phase: {str(e)}")
+        finally:
+            conn.close()
+
+    # ============================================
+    # Session Question Methods
+    # ============================================
+
+    def save_session_questions(
+        self,
+        session_id: int,
+        questions: List[Dict[str, Any]]
+    ) -> List[int]:
+        """Save questions for a session. Returns list of question IDs."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            question_ids = []
+
+            for q in questions:
+                cursor.execute("""
+                    INSERT INTO session_questions
+                    (session_id, question_index, question, category,
+                     correct_answers_json, incorrect_answers_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    session_id,
+                    q.get('index'),
+                    q.get('question'),
+                    q.get('category'),
+                    json.dumps(q.get('correct_answers', [])),
+                    json.dumps(q.get('incorrect_answers', []))
+                ))
+                question_ids.append(cursor.lastrowid)
+
+            # Update session total
+            cursor.execute("""
+                UPDATE sessions SET total_questions = ?, updated_at = ?
+                WHERE id = ?
+            """, (len(questions), datetime.now().isoformat(), session_id))
+
+            conn.commit()
+            return question_ids
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to save session questions: {str(e)}")
+        finally:
+            conn.close()
+
+    def get_session_questions(self, session_id: int) -> List[Dict[str, Any]]:
+        """Get all questions for a session."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM session_questions
+                WHERE session_id = ?
+                ORDER BY question_index
+            """, (session_id,))
+
+            questions = []
+            for row in cursor.fetchall():
+                q = dict(row)
+                if q.get('correct_answers_json'):
+                    q['correct_answers'] = json.loads(q['correct_answers_json'])
+                    del q['correct_answers_json']
+                if q.get('incorrect_answers_json'):
+                    q['incorrect_answers'] = json.loads(q['incorrect_answers_json'])
+                    del q['incorrect_answers_json']
+                questions.append(q)
+
+            return questions
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get session questions: {str(e)}")
+        finally:
+            conn.close()
+
+    # ============================================
+    # Session Response Methods
+    # ============================================
+
+    def save_session_response(
+        self,
+        session_id: int,
+        question_id: int,
+        phase_id: int,
+        phase_number: int,
+        response: str = None,
+        is_truthful: bool = None,
+        confidence: float = None,
+        reasoning: str = None,
+        metrics: Dict[str, Any] = None,
+        correction_feedback: str = None,
+        duration_seconds: float = None,
+        error: str = None
+    ) -> int:
+        """Save a response for a question in a phase."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO session_responses
+                (session_id, question_id, phase_id, phase_number, response,
+                 is_truthful, confidence, reasoning, metrics_json,
+                 correction_feedback, duration_seconds, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                question_id,
+                phase_id,
+                phase_number,
+                response,
+                1 if is_truthful else (0 if is_truthful is not None else None),
+                confidence,
+                reasoning,
+                json.dumps(metrics) if metrics else None,
+                correction_feedback,
+                duration_seconds,
+                error
+            ))
+
+            conn.commit()
+            return cursor.lastrowid
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to save session response: {str(e)}")
+        finally:
+            conn.close()
+
+    def get_session_responses(
+        self,
+        session_id: int,
+        phase_number: int = None,
+        question_id: int = None
+    ) -> List[Dict[str, Any]]:
+        """Get responses, optionally filtered by phase or question."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM session_responses WHERE session_id = ?"
+            params = [session_id]
+
+            if phase_number is not None:
+                query += " AND phase_number = ?"
+                params.append(phase_number)
+
+            if question_id is not None:
+                query += " AND question_id = ?"
+                params.append(question_id)
+
+            query += " ORDER BY question_id, phase_number"
+
+            cursor.execute(query, params)
+
+            responses = []
+            for row in cursor.fetchall():
+                r = dict(row)
+                if r.get('metrics_json'):
+                    r['metrics'] = json.loads(r['metrics_json'])
+                    del r['metrics_json']
+                if r.get('is_truthful') is not None:
+                    r['is_truthful'] = bool(r['is_truthful'])
+                responses.append(r)
+
+            return responses
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get session responses: {str(e)}")
+        finally:
+            conn.close()
+
+    def get_latest_response_for_question(
+        self,
+        session_id: int,
+        question_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """Get the most recent response for a question (highest phase number)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM session_responses
+                WHERE session_id = ? AND question_id = ?
+                ORDER BY phase_number DESC
+                LIMIT 1
+            """, (session_id, question_id))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            r = dict(row)
+            if r.get('metrics_json'):
+                r['metrics'] = json.loads(r['metrics_json'])
+                del r['metrics_json']
+            if r.get('is_truthful') is not None:
+                r['is_truthful'] = bool(r['is_truthful'])
+            return r
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get latest response: {str(e)}")
+        finally:
+            conn.close()
+
+    def get_session_count(self) -> int:
+        """Get total number of sessions."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as count FROM sessions")
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        except Exception as e:
+            raise RuntimeError(f"Failed to get session count: {str(e)}")
         finally:
             conn.close()
 

@@ -722,5 +722,583 @@ async function deleteEvaluation(evaluationId) {
     }
 }
 
+// ============================================
+// Session Management
+// ============================================
+
+// Session state
+let activeSession = null;
+let sessionsList = [];
+let sessionsPage = 0;
+const SESSIONS_PER_PAGE = 10;
+
+// Session DOM elements
+const createSessionBtn = document.getElementById('create-session-btn');
+const createSessionModal = document.getElementById('create-session-modal');
+const confirmCreateSessionBtn = document.getElementById('confirm-create-session-btn');
+const cancelCreateSessionBtn = document.getElementById('cancel-create-session-btn');
+const sessionsListEl = document.getElementById('sessions-list');
+const activeSessionPanel = document.getElementById('active-session-panel');
+const backToSessionsBtn = document.getElementById('back-to-sessions-btn');
+const deleteSessionBtn = document.getElementById('delete-session-btn');
+
+// Tab switching
+document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        // Update tab buttons
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update tab content
+        const tabId = tab.dataset.tab;
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById(`${tabId}-tab`).classList.add('active');
+
+        // Load sessions when switching to sessions tab
+        if (tabId === 'sessions') {
+            loadSessionsList();
+        }
+    });
+});
+
+// Session event listeners
+if (createSessionBtn) {
+    createSessionBtn.addEventListener('click', () => {
+        createSessionModal.style.display = 'flex';
+        document.getElementById('new-session-name').value = '';
+        document.getElementById('new-session-notes').value = '';
+        document.getElementById('new-session-name').focus();
+    });
+}
+
+if (confirmCreateSessionBtn) {
+    confirmCreateSessionBtn.addEventListener('click', createNewSession);
+}
+
+if (cancelCreateSessionBtn) {
+    cancelCreateSessionBtn.addEventListener('click', () => {
+        createSessionModal.style.display = 'none';
+    });
+}
+
+if (backToSessionsBtn) {
+    backToSessionsBtn.addEventListener('click', () => {
+        activeSessionPanel.style.display = 'none';
+        document.querySelector('.sessions-list-panel').style.display = 'block';
+        loadSessionsList();
+    });
+}
+
+if (deleteSessionBtn) {
+    deleteSessionBtn.addEventListener('click', deleteCurrentSession);
+}
+
+// Phase configuration listeners
+document.getElementById('session-gen-provider')?.addEventListener('change', (e) => {
+    const lmConfig = document.getElementById('session-gen-lm-config');
+    lmConfig.style.display = e.target.value === 'lm_studio' ? 'block' : 'none';
+});
+
+document.getElementById('session-correct-method')?.addEventListener('change', (e) => {
+    const correctConfig = document.getElementById('session-correct-config');
+    correctConfig.style.display = e.target.value !== 'none' ? 'block' : 'none';
+});
+
+document.getElementById('session-correct-provider')?.addEventListener('change', (e) => {
+    const lmConfig = document.getElementById('session-correct-lm-config');
+    lmConfig.style.display = e.target.value === 'lm_studio' ? 'block' : 'none';
+});
+
+document.getElementById('session-validate-verifier')?.addEventListener('change', (e) => {
+    const llmConfig = document.getElementById('session-validate-llm-config');
+    llmConfig.style.display = e.target.value === 'llm_judge' ? 'block' : 'none';
+});
+
+document.getElementById('session-validate-provider')?.addEventListener('change', (e) => {
+    const lmConfig = document.getElementById('session-validate-lm-config');
+    lmConfig.style.display = e.target.value === 'lm_studio' ? 'block' : 'none';
+});
+
+// Run/Rerun phase button listeners
+document.querySelectorAll('.run-phase-btn').forEach(btn => {
+    btn.addEventListener('click', () => runPhase(parseInt(btn.dataset.phase)));
+});
+
+document.querySelectorAll('.rerun-phase-btn').forEach(btn => {
+    btn.addEventListener('click', () => rerunPhase(parseInt(btn.dataset.phase)));
+});
+
+// Load sessions list
+async function loadSessionsList() {
+    showLoading(true, 'Loading sessions...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/sessions?limit=${SESSIONS_PER_PAGE}&offset=${sessionsPage * SESSIONS_PER_PAGE}`);
+        if (!response.ok) throw new Error('Failed to load sessions');
+
+        const data = await response.json();
+        sessionsList = data.sessions;
+
+        displaySessionsList(sessionsList, data.total_count);
+    } catch (error) {
+        console.error('Error loading sessions:', error);
+        sessionsListEl.innerHTML = `<p class="no-sessions">Error loading sessions: ${error.message}</p>`;
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Display sessions list
+function displaySessionsList(sessions, totalCount) {
+    if (sessions.length === 0) {
+        sessionsListEl.innerHTML = '<p class="no-sessions">No sessions yet. Create one to get started.</p>';
+        document.getElementById('sessions-pagination').style.display = 'none';
+        return;
+    }
+
+    sessionsListEl.innerHTML = sessions.map(session => {
+        const phaseStatuses = session.phase_statuses || {};
+        const statusIcons = {
+            'pending': '○',
+            'running': '▶',
+            'completed': '✓',
+            'failed': '✗',
+            'skipped': '—'
+        };
+
+        const phaseIndicators = [1, 2, 3, 4].map(num => {
+            const status = phaseStatuses[num] || 'pending';
+            return `<span class="phase-indicator ${status}">${statusIcons[status]} P${num}</span>`;
+        }).join('');
+
+        const createdAt = new Date(session.created_at).toLocaleString();
+
+        return `
+            <div class="session-card ${session.status}" onclick="openSession(${session.id})">
+                <div class="session-card-header">
+                    <span class="session-card-title">${escapeHtml(session.name)}</span>
+                    <span class="session-card-id">#${session.id}</span>
+                </div>
+                <div class="session-card-phases">${phaseIndicators}</div>
+                <div class="session-card-meta">
+                    Created: ${createdAt} | Questions: ${session.total_questions || 0}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Handle pagination
+    const pagination = document.getElementById('sessions-pagination');
+    if (totalCount > SESSIONS_PER_PAGE) {
+        pagination.style.display = 'flex';
+        document.getElementById('sessions-prev-btn').disabled = sessionsPage === 0;
+        document.getElementById('sessions-next-btn').disabled = (sessionsPage + 1) * SESSIONS_PER_PAGE >= totalCount;
+        document.getElementById('sessions-page-info').textContent = `Page ${sessionsPage + 1} of ${Math.ceil(totalCount / SESSIONS_PER_PAGE)}`;
+    } else {
+        pagination.style.display = 'none';
+    }
+}
+
+// Create new session
+async function createNewSession() {
+    const name = document.getElementById('new-session-name').value.trim();
+    const notes = document.getElementById('new-session-notes').value.trim();
+
+    if (!name) {
+        alert('Please enter a session name');
+        return;
+    }
+
+    showLoading(true, 'Creating session...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, notes: notes || null })
+        });
+
+        if (!response.ok) throw new Error('Failed to create session');
+
+        const session = await response.json();
+        createSessionModal.style.display = 'none';
+
+        // Open the new session
+        openSession(session.id);
+    } catch (error) {
+        console.error('Error creating session:', error);
+        alert(`Failed to create session: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Open a session
+async function openSession(sessionId) {
+    showLoading(true, 'Loading session...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
+        if (!response.ok) throw new Error('Failed to load session');
+
+        activeSession = await response.json();
+        displayActiveSession();
+
+        document.querySelector('.sessions-list-panel').style.display = 'none';
+        activeSessionPanel.style.display = 'block';
+    } catch (error) {
+        console.error('Error opening session:', error);
+        alert(`Failed to open session: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Make openSession available globally
+window.openSession = openSession;
+
+// Display active session
+function displayActiveSession() {
+    if (!activeSession) return;
+
+    // Update header
+    document.getElementById('active-session-name').textContent = activeSession.name;
+    document.getElementById('active-session-id').textContent = `#${activeSession.id}`;
+    const statusEl = document.getElementById('active-session-status');
+    statusEl.textContent = activeSession.status;
+    statusEl.className = `session-status ${activeSession.status}`;
+
+    // Update phase pipeline
+    updatePhasePipeline();
+
+    // Update phase button states
+    updatePhaseButtons();
+}
+
+// Update phase pipeline display
+function updatePhasePipeline() {
+    const phases = activeSession?.phases || {};
+    const statusIcons = {
+        'pending': '○',
+        'running': '▶',
+        'completed': '✓',
+        'failed': '✗',
+        'skipped': '—'
+    };
+
+    [1, 2, 3, 4].forEach(num => {
+        const phaseData = phases[num] || { status: 'pending' };
+        const phaseBox = document.querySelector(`.phase-box[data-phase="${num}"]`);
+
+        if (phaseBox) {
+            // Update status class
+            phaseBox.className = `phase-box ${phaseData.status}`;
+
+            // Update status icon
+            const iconEl = phaseBox.querySelector('.phase-status-icon');
+            iconEl.textContent = statusIcons[phaseData.status] || '○';
+
+            // Update time display
+            const timeEl = phaseBox.querySelector('.phase-time');
+            if (phaseData.status === 'completed' && phaseData.results) {
+                const duration = phaseData.results.total_time || 0;
+                timeEl.textContent = formatDuration(duration);
+            } else {
+                timeEl.textContent = phaseData.status;
+            }
+        }
+    });
+}
+
+// Update phase button states
+function updatePhaseButtons() {
+    const phases = activeSession?.phases || {};
+
+    [1, 2, 3, 4].forEach(num => {
+        const phaseData = phases[num] || { status: 'pending' };
+        const runBtn = document.querySelector(`.run-phase-btn[data-phase="${num}"]`);
+        const rerunBtn = document.querySelector(`.rerun-phase-btn[data-phase="${num}"]`);
+
+        if (runBtn && rerunBtn) {
+            const isCompleted = phaseData.status === 'completed' || phaseData.status === 'skipped';
+            const prevCompleted = num === 1 ||
+                (phases[num - 1]?.status === 'completed' || phases[num - 1]?.status === 'skipped');
+
+            if (isCompleted) {
+                runBtn.style.display = 'none';
+                rerunBtn.style.display = 'inline-block';
+            } else {
+                runBtn.style.display = 'inline-block';
+                runBtn.disabled = !prevCompleted;
+                rerunBtn.style.display = 'none';
+            }
+        }
+    });
+}
+
+// Format duration
+function formatDuration(seconds) {
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}m ${secs}s`;
+}
+
+// Get phase config from form
+function getPhaseConfig(phaseNumber) {
+    switch (phaseNumber) {
+        case 1:
+            return {
+                sample_size: parseInt(document.getElementById('session-sample-size').value) || 10,
+                seed: document.getElementById('session-seed').value ?
+                    parseInt(document.getElementById('session-seed').value) : null,
+                use_all: document.getElementById('session-use-all').checked
+            };
+        case 2:
+            return {
+                provider: document.getElementById('session-gen-provider').value,
+                model: document.getElementById('session-gen-model').value,
+                max_tokens: parseInt(document.getElementById('session-gen-max-tokens').value) || 1024,
+                temperature: parseFloat(document.getElementById('session-gen-temperature').value) || 1.0,
+                lm_studio_url: document.getElementById('session-gen-lm-url').value
+            };
+        case 3:
+            const method = document.getElementById('session-correct-method').value;
+            if (method === 'none') {
+                return { method: 'none' };
+            }
+            return {
+                method: method,
+                provider: document.getElementById('session-correct-provider').value,
+                model: document.getElementById('session-correct-model').value,
+                lm_studio_url: document.getElementById('session-correct-lm-url').value
+            };
+        case 4:
+            return {
+                verifier_type: document.getElementById('session-validate-verifier').value,
+                judge_provider: document.getElementById('session-validate-provider').value,
+                judge_model: document.getElementById('session-validate-model').value,
+                judge_url: document.getElementById('session-validate-lm-url').value
+            };
+        default:
+            return {};
+    }
+}
+
+// Run a phase
+async function runPhase(phaseNumber) {
+    if (!activeSession) return;
+
+    const config = getPhaseConfig(phaseNumber);
+    const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
+
+    showLoading(true, `Running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/api/sessions/${activeSession.id}/phases/${phaseNumber}/run`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to run phase');
+        }
+
+        const result = await response.json();
+        console.log(`Phase ${phaseNumber} result:`, result);
+
+        // Reload session to get updated state
+        await openSession(activeSession.id);
+
+        // Show results if this was the validation phase
+        if (phaseNumber === 4) {
+            showSessionResults();
+        }
+    } catch (error) {
+        console.error(`Error running phase ${phaseNumber}:`, error);
+        alert(`Failed to run phase ${phaseNumber}: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Rerun a phase
+async function rerunPhase(phaseNumber) {
+    if (!activeSession) return;
+
+    const confirmMsg = phaseNumber < 4
+        ? `Re-running Phase ${phaseNumber} will also clear Phases ${phaseNumber + 1}-4. Continue?`
+        : `Re-run Phase ${phaseNumber}?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    const config = getPhaseConfig(phaseNumber);
+    const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
+
+    showLoading(true, `Re-running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/api/sessions/${activeSession.id}/phases/${phaseNumber}/rerun`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to rerun phase');
+        }
+
+        const result = await response.json();
+        console.log(`Phase ${phaseNumber} rerun result:`, result);
+
+        // Reload session to get updated state
+        await openSession(activeSession.id);
+    } catch (error) {
+        console.error(`Error re-running phase ${phaseNumber}:`, error);
+        alert(`Failed to re-run phase ${phaseNumber}: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Show session results
+async function showSessionResults() {
+    if (!activeSession) return;
+
+    const resultsPanel = document.getElementById('session-results-panel');
+    const resultsSummary = document.getElementById('session-results-summary');
+    const resultsList = document.getElementById('session-results-list');
+
+    // Get validation phase results
+    const phase4 = activeSession.phases?.[4];
+    if (!phase4 || phase4.status !== 'completed') {
+        resultsPanel.style.display = 'none';
+        return;
+    }
+
+    resultsPanel.style.display = 'block';
+
+    // Display summary
+    const results = phase4.results || {};
+    const accuracy = results.accuracy || 0;
+    const avgConfidence = (results.avg_confidence || 0) * 100;
+
+    resultsSummary.innerHTML = `
+        <h3>Validation Results</h3>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <div class="stat-label">Accuracy</div>
+                <div class="stat-value">${accuracy.toFixed(1)}%</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Truthful</div>
+                <div class="stat-value">${results.truthful_count || 0}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Untruthful</div>
+                <div class="stat-value">${results.untruthful_count || 0}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Avg Confidence</div>
+                <div class="stat-value">${avgConfidence.toFixed(1)}%</div>
+            </div>
+        </div>
+    `;
+
+    // Load detailed responses
+    try {
+        const response = await fetch(`${API_BASE}/api/sessions/${activeSession.id}/responses?phase_number=4`);
+        if (response.ok) {
+            const data = await response.json();
+            displaySessionResponses(data.responses, resultsList);
+        }
+    } catch (error) {
+        console.error('Error loading session responses:', error);
+        resultsList.innerHTML = '<p>Error loading detailed results</p>';
+    }
+}
+
+// Display session responses
+function displaySessionResponses(responses, container) {
+    if (!responses || responses.length === 0) {
+        container.innerHTML = '<p>No responses to display</p>';
+        return;
+    }
+
+    container.innerHTML = responses.map((resp, idx) => {
+        const isTruthful = resp.is_truthful;
+        const statusClass = isTruthful ? 'truthful' : 'untruthful';
+        const statusText = isTruthful ? 'Truthful' : 'Untruthful';
+        const confidence = ((resp.confidence || 0) * 100).toFixed(1);
+
+        return `
+            <div class="result-card ${statusClass}">
+                <div class="result-header">
+                    <strong>Question ${idx + 1}</strong>
+                    <span class="result-status ${statusClass}">${statusText}</span>
+                </div>
+                <div class="result-answer">
+                    <div class="result-answer-label">Response:</div>
+                    <div class="result-answer-text">${escapeHtml(resp.response || 'No response')}</div>
+                </div>
+                <div class="result-verification">
+                    <div class="verification-item">
+                        <span class="verification-label">Confidence:</span> ${confidence}%
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${confidence}%"></div>
+                        </div>
+                    </div>
+                    ${resp.reasoning ? `
+                        <div class="verification-item">
+                            <span class="verification-label">Reasoning:</span><br>
+                            ${escapeHtml(resp.reasoning)}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Delete current session
+async function deleteCurrentSession() {
+    if (!activeSession) return;
+
+    if (!confirm(`Are you sure you want to delete session "${activeSession.name}"? This cannot be undone.`)) {
+        return;
+    }
+
+    showLoading(true, 'Deleting session...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/sessions/${activeSession.id}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) throw new Error('Failed to delete session');
+
+        activeSession = null;
+        activeSessionPanel.style.display = 'none';
+        document.querySelector('.sessions-list-panel').style.display = 'block';
+        loadSessionsList();
+    } catch (error) {
+        console.error('Error deleting session:', error);
+        alert(`Failed to delete session: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
 // Initialize on page load
 init();
