@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Set
 from collections import Counter
 import threading
+import re
 
 from backend.services.database import get_database
 from backend.services.dataset_loader import TruthfulQALoader
@@ -129,7 +130,8 @@ class SessionService:
         session_id: int,
         phase_number: int,
         config: Dict[str, Any],
-        rerun: bool = False
+        rerun: bool = False,
+        resume: bool = False
     ) -> Dict[str, Any]:
         """
         Run a specific phase of a session.
@@ -139,6 +141,7 @@ class SessionService:
             phase_number: Phase number (1-4)
             config: Phase configuration
             rerun: If True, reset this phase and downstream before running
+            resume: If True, resume a cancelled phase (only process remaining questions)
 
         Returns:
             Phase results summary
@@ -193,7 +196,7 @@ class SessionService:
         }
 
         handler = phase_handlers[phase_number]
-        result = handler(session_id, session, tracker, config)
+        result = handler(session_id, session, tracker, config, resume=resume)
 
         # Print pipeline status after phase
         tracker.print_pipeline()
@@ -209,7 +212,8 @@ class SessionService:
         session_id: int,
         session: Dict[str, Any],
         tracker: SessionTracker,
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        resume: bool = False
     ) -> Dict[str, Any]:
         """Execute Phase 1: Gather questions."""
         sample_size = config.get('sample_size', 10)
@@ -291,7 +295,8 @@ class SessionService:
         session_id: int,
         session: Dict[str, Any],
         tracker: SessionTracker,
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        resume: bool = False
     ) -> Dict[str, Any]:
         """Execute Phase 2: Generate initial responses."""
         provider_type = config.get('provider', 'claude')
@@ -305,6 +310,13 @@ class SessionService:
         questions = self.db.get_session_questions(session_id)
         if not questions:
             raise ValueError("No questions found. Run phase 1 first.")
+
+        # If resuming, filter out questions that already have responses
+        if resume:
+            existing_responses = self.db.get_session_responses(session_id, phase_number=2)
+            completed_question_ids = {r['question_id'] for r in existing_responses if not r.get('error')}
+            questions = [q for q in questions if q['id'] not in completed_question_ids]
+            print(f"[Session {session_id}] Resuming phase 2: {len(questions)} questions remaining")
 
         # Start phase tracking
         tracker.start_phase(2, len(questions), config)
@@ -343,6 +355,11 @@ class SessionService:
                     # Generate response
                     prompt = f"Q: {q_text}\nA:"
                     response = llm.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+
+                    # Trim empty <think></think> blocks from qwen3 responses when thinking is disabled
+                    if qwen_thinking and model and 'qwen' in model.lower():
+                        # Remove empty think blocks at the beginning of the response
+                        response = re.sub(r'^\s*<think>\s*</think>\s*', '', response, flags=re.IGNORECASE)
 
                     duration = time.time() - start_time
                     total_time += duration
@@ -434,7 +451,8 @@ class SessionService:
         session_id: int,
         session: Dict[str, Any],
         tracker: SessionTracker,
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        resume: bool = False
     ) -> Dict[str, Any]:
         """Execute Phase 3: Apply self-correction."""
         method = config.get('method', 'none')
@@ -730,7 +748,8 @@ Improved answer:"""
         session_id: int,
         session: Dict[str, Any],
         tracker: SessionTracker,
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        resume: bool = False
     ) -> Dict[str, Any]:
         """Execute Phase 4: Validate/evaluate responses."""
         verifier_type = config.get('verifier_type', 'llm_judge')
@@ -740,6 +759,13 @@ Improved answer:"""
 
         # Get questions
         questions = self.db.get_session_questions(session_id)
+
+        # If resuming, filter out questions that already have validation results
+        if resume:
+            existing_validations = self.db.get_session_responses(session_id, phase_number=4)
+            completed_question_ids = {r['question_id'] for r in existing_validations if not r.get('error')}
+            questions = [q for q in questions if q['id'] not in completed_question_ids]
+            print(f"[Session {session_id}] Resuming phase 4: {len(questions)} questions remaining")
 
         # Get latest responses (from phase 3 if available, else phase 2)
         phase_3_responses = self.db.get_session_responses(session_id, phase_number=3)

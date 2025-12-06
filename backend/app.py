@@ -855,6 +855,41 @@ async def rerun_session_phase(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sessions/{session_id}/phases/{phase_number}/resume")
+async def resume_session_phase(
+    session_id: int,
+    phase_number: int,
+    config: Dict[str, Any]
+):
+    """
+    Resume a cancelled phase, continuing from where it left off.
+
+    Args:
+        session_id: The session ID
+        phase_number: Phase number (1-4)
+        config: Phase configuration
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = service.run_phase(session_id, phase_number, config, resume=True)
+        return {
+            "session_id": session_id,
+            "phase_number": phase_number,
+            "result": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{session_id}/phases/{phase_number}")
 async def get_session_phase(session_id: int, phase_number: int):
     """

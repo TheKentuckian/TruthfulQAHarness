@@ -748,6 +748,11 @@ let sessionsPage = 0;
 const SESSIONS_PER_PAGE = 10;
 let sessionAbortController = null;
 
+// Session results pagination
+let sessionResultsPage = 0;
+const RESULTS_PER_PAGE = 50;
+let allSessionResponses = [];
+
 // Session DOM elements
 const createSessionBtn = document.getElementById('create-session-btn');
 const createSessionModal = document.getElementById('create-session-modal');
@@ -837,13 +842,17 @@ document.getElementById('session-validate-provider')?.addEventListener('change',
     lmConfig.style.display = e.target.value === 'lm_studio' ? 'block' : 'none';
 });
 
-// Run/Rerun phase button listeners
+// Run/Rerun/Resume phase button listeners
 document.querySelectorAll('.run-phase-btn').forEach(btn => {
     btn.addEventListener('click', () => runPhase(parseInt(btn.dataset.phase)));
 });
 
 document.querySelectorAll('.rerun-phase-btn').forEach(btn => {
     btn.addEventListener('click', () => rerunPhase(parseInt(btn.dataset.phase)));
+});
+
+document.querySelectorAll('.resume-phase-btn').forEach(btn => {
+    btn.addEventListener('click', () => resumePhase(parseInt(btn.dataset.phase)));
 });
 
 // Load sessions list
@@ -1038,19 +1047,30 @@ function updatePhaseButtons() {
         const phaseData = phases[num] || { status: 'pending' };
         const runBtn = document.querySelector(`.run-phase-btn[data-phase="${num}"]`);
         const rerunBtn = document.querySelector(`.rerun-phase-btn[data-phase="${num}"]`);
+        const resumeBtn = document.querySelector(`.resume-phase-btn[data-phase="${num}"]`);
 
-        if (runBtn && rerunBtn) {
+        if (runBtn && rerunBtn && resumeBtn) {
             const isCompleted = phaseData.status === 'completed' || phaseData.status === 'skipped';
+            const isCancelled = phaseData.status === 'cancelled';
             const prevCompleted = num === 1 ||
                 (phases[num - 1]?.status === 'completed' || phases[num - 1]?.status === 'skipped');
 
             if (isCompleted) {
+                // Phase completed - show only rerun button
                 runBtn.style.display = 'none';
                 rerunBtn.style.display = 'inline-block';
+                resumeBtn.style.display = 'none';
+            } else if (isCancelled) {
+                // Phase cancelled - show resume and rerun buttons
+                runBtn.style.display = 'none';
+                rerunBtn.style.display = 'inline-block';
+                resumeBtn.style.display = 'inline-block';
             } else {
+                // Phase pending or failed - show run button
                 runBtn.style.display = 'inline-block';
                 runBtn.disabled = !prevCompleted;
                 rerunBtn.style.display = 'none';
+                resumeBtn.style.display = 'none';
             }
         }
     });
@@ -1229,6 +1249,60 @@ async function rerunPhase(phaseNumber) {
     }
 }
 
+// Resume a cancelled phase
+async function resumePhase(phaseNumber) {
+    if (!activeSession) return;
+
+    const config = getPhaseConfig(phaseNumber);
+    const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
+
+    // Create abort controller for this phase execution
+    sessionAbortController = new AbortController();
+
+    showLoading(true, `Resuming Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`, true);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/api/sessions/${activeSession.id}/phases/${phaseNumber}/resume`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+                signal: sessionAbortController.signal
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to resume phase');
+        }
+
+        const result = await response.json();
+        console.log(`Phase ${phaseNumber} resume result:`, result);
+
+        // Reload session to get updated state
+        await openSession(activeSession.id);
+
+        // Show results if this was the validation phase
+        if (phaseNumber === 4) {
+            showSessionResults();
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('Phase resume cancelled by user');
+            alert('Phase execution cancelled');
+            // Reload session to see current state
+            await openSession(activeSession.id);
+        } else {
+            console.error(`Error resuming phase ${phaseNumber}:`, error);
+            alert(`Failed to resume phase ${phaseNumber}: ${error.message}`);
+        }
+    } finally {
+        showLoading(false);
+        sessionAbortController = null;
+    }
+}
+
 // Show session results
 async function showSessionResults() {
     if (!activeSession) return;
@@ -1275,6 +1349,9 @@ async function showSessionResults() {
 
     // Load detailed responses
     try {
+        // Reset pagination to first page
+        sessionResultsPage = 0;
+
         const response = await fetch(`${API_BASE}/api/sessions/${activeSession.id}/responses?phase_number=4`);
         if (response.ok) {
             const data = await response.json();
@@ -1293,7 +1370,17 @@ function displaySessionResponses(responses, container) {
         return;
     }
 
-    container.innerHTML = responses.map((resp, idx) => {
+    // Store all responses for pagination
+    allSessionResponses = responses;
+
+    // Calculate pagination
+    const totalPages = Math.ceil(responses.length / RESULTS_PER_PAGE);
+    const startIdx = sessionResultsPage * RESULTS_PER_PAGE;
+    const endIdx = Math.min(startIdx + RESULTS_PER_PAGE, responses.length);
+    const pageResponses = responses.slice(startIdx, endIdx);
+
+    container.innerHTML = pageResponses.map((resp, pageIdx) => {
+        const idx = startIdx + pageIdx; // Global index for question numbering
         const isTruthful = resp.is_truthful;
         const statusClass = isTruthful ? 'truthful' : 'untruthful';
         const statusText = isTruthful ? 'Truthful' : 'Untruthful';
@@ -1364,6 +1451,42 @@ function displaySessionResponses(responses, container) {
             </div>
         `;
     }).join('');
+
+    // Add pagination controls if needed
+    if (totalPages > 1) {
+        const paginationHtml = `
+            <div class="pagination" style="margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 15px;">
+                <button id="session-results-prev-btn" class="btn btn-primary" ${sessionResultsPage === 0 ? 'disabled' : ''}>← Previous</button>
+                <span id="session-results-page-info">Page ${sessionResultsPage + 1} of ${totalPages} (Showing ${startIdx + 1}-${endIdx} of ${responses.length})</span>
+                <button id="session-results-next-btn" class="btn btn-primary" ${sessionResultsPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
+            </div>
+        `;
+        container.innerHTML += paginationHtml;
+
+        // Add event listeners for pagination buttons
+        setTimeout(() => {
+            const prevBtn = document.getElementById('session-results-prev-btn');
+            const nextBtn = document.getElementById('session-results-next-btn');
+
+            if (prevBtn) {
+                prevBtn.addEventListener('click', () => {
+                    if (sessionResultsPage > 0) {
+                        sessionResultsPage--;
+                        displaySessionResponses(allSessionResponses, container);
+                    }
+                });
+            }
+
+            if (nextBtn) {
+                nextBtn.addEventListener('click', () => {
+                    if (sessionResultsPage < totalPages - 1) {
+                        sessionResultsPage++;
+                        displaySessionResponses(allSessionResponses, container);
+                    }
+                });
+            }
+        }, 0);
+    }
 }
 
 // Delete current session
