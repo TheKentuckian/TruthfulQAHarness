@@ -326,11 +326,15 @@ async function evaluateBatch() {
     }
 }
 
-// Cancel evaluation
+// Cancel evaluation (works for both quick evaluation and session phases)
 function cancelEvaluation() {
     if (abortController) {
         abortController.abort();
         console.log('Cancelling evaluation...');
+    }
+    if (sessionAbortController) {
+        sessionAbortController.abort();
+        console.log('Cancelling session phase...');
     }
 }
 
@@ -731,6 +735,7 @@ let activeSession = null;
 let sessionsList = [];
 let sessionsPage = 0;
 const SESSIONS_PER_PAGE = 10;
+let sessionAbortController = null;
 
 // Session DOM elements
 const createSessionBtn = document.getElementById('create-session-btn');
@@ -1087,6 +1092,14 @@ function getPhaseConfig(phaseNumber) {
     }
 }
 
+// Cancel session phase execution
+function cancelSessionPhase() {
+    if (sessionAbortController) {
+        sessionAbortController.abort();
+        console.log('Cancelling session phase...');
+    }
+}
+
 // Run a phase
 async function runPhase(phaseNumber) {
     if (!activeSession) return;
@@ -1094,7 +1107,10 @@ async function runPhase(phaseNumber) {
     const config = getPhaseConfig(phaseNumber);
     const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
 
-    showLoading(true, `Running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`);
+    // Create abort controller for this phase execution
+    sessionAbortController = new AbortController();
+
+    showLoading(true, `Running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`, true);
 
     try {
         const response = await fetch(
@@ -1102,7 +1118,8 @@ async function runPhase(phaseNumber) {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(config),
+                signal: sessionAbortController.signal
             }
         );
 
@@ -1122,10 +1139,18 @@ async function runPhase(phaseNumber) {
             showSessionResults();
         }
     } catch (error) {
-        console.error(`Error running phase ${phaseNumber}:`, error);
-        alert(`Failed to run phase ${phaseNumber}: ${error.message}`);
+        if (error.name === 'AbortError') {
+            console.log('Phase execution cancelled by user');
+            alert('Phase execution cancelled');
+            // Reload session to see current state
+            await openSession(activeSession.id);
+        } else {
+            console.error(`Error running phase ${phaseNumber}:`, error);
+            alert(`Failed to run phase ${phaseNumber}: ${error.message}`);
+        }
     } finally {
         showLoading(false);
+        sessionAbortController = null;
     }
 }
 
@@ -1142,7 +1167,10 @@ async function rerunPhase(phaseNumber) {
     const config = getPhaseConfig(phaseNumber);
     const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
 
-    showLoading(true, `Re-running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`);
+    // Create abort controller for this phase execution
+    sessionAbortController = new AbortController();
+
+    showLoading(true, `Re-running Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`, true);
 
     try {
         const response = await fetch(
@@ -1150,7 +1178,8 @@ async function rerunPhase(phaseNumber) {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(config),
+                signal: sessionAbortController.signal
             }
         );
 
@@ -1164,11 +1193,24 @@ async function rerunPhase(phaseNumber) {
 
         // Reload session to get updated state
         await openSession(activeSession.id);
+
+        // Show results if this was the validation phase
+        if (phaseNumber === 4) {
+            showSessionResults();
+        }
     } catch (error) {
-        console.error(`Error re-running phase ${phaseNumber}:`, error);
-        alert(`Failed to re-run phase ${phaseNumber}: ${error.message}`);
+        if (error.name === 'AbortError') {
+            console.log('Phase rerun cancelled by user');
+            alert('Phase execution cancelled');
+            // Reload session to see current state
+            await openSession(activeSession.id);
+        } else {
+            console.error(`Error re-running phase ${phaseNumber}:`, error);
+            alert(`Failed to re-run phase ${phaseNumber}: ${error.message}`);
+        }
     } finally {
         showLoading(false);
+        sessionAbortController = null;
     }
 }
 
@@ -1242,16 +1284,54 @@ function displaySessionResponses(responses, container) {
         const statusText = isTruthful ? 'Truthful' : 'Untruthful';
         const confidence = ((resp.confidence || 0) * 100).toFixed(1);
 
+        // Format reference answers
+        const correctAnswers = resp.correct_answers || [];
+        const incorrectAnswers = resp.incorrect_answers || [];
+
         return `
             <div class="result-card ${statusClass}">
                 <div class="result-header">
                     <strong>Question ${idx + 1}</strong>
+                    ${resp.category ? `<span class="category-badge" style="margin-left: 10px;">${escapeHtml(resp.category)}</span>` : ''}
                     <span class="result-status ${statusClass}">${statusText}</span>
                 </div>
+
+                <!-- Question -->
+                <div class="result-question" style="margin-bottom: 15px;">
+                    <strong>Q:</strong> ${escapeHtml(resp.question_text || 'Question not available')}
+                </div>
+
+                <!-- Reference Answers -->
+                <div class="reference-answers" style="margin-bottom: 15px; padding: 10px; background: #f7fafc; border-radius: 4px; font-size: 0.9em;">
+                    <div style="margin-bottom: 8px;">
+                        <strong style="color: #38a169;">✓ Correct Answers:</strong>
+                        <ul style="margin: 5px 0 0 20px; padding: 0;">
+                            ${correctAnswers.length > 0
+                                ? correctAnswers.slice(0, 3).map(a => `<li>${escapeHtml(a)}</li>`).join('')
+                                : '<li style="color: #718096;">None available</li>'
+                            }
+                            ${correctAnswers.length > 3 ? `<li style="color: #718096;">... and ${correctAnswers.length - 3} more</li>` : ''}
+                        </ul>
+                    </div>
+                    <div>
+                        <strong style="color: #e53e3e;">✗ Incorrect Answers:</strong>
+                        <ul style="margin: 5px 0 0 20px; padding: 0;">
+                            ${incorrectAnswers.length > 0
+                                ? incorrectAnswers.slice(0, 3).map(a => `<li>${escapeHtml(a)}</li>`).join('')
+                                : '<li style="color: #718096;">None available</li>'
+                            }
+                            ${incorrectAnswers.length > 3 ? `<li style="color: #718096;">... and ${incorrectAnswers.length - 3} more</li>` : ''}
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Generated Response -->
                 <div class="result-answer">
-                    <div class="result-answer-label">Response:</div>
+                    <div class="result-answer-label">Generated Answer:</div>
                     <div class="result-answer-text">${escapeHtml(resp.response || 'No response')}</div>
                 </div>
+
+                <!-- Verification Results -->
                 <div class="result-verification">
                     <div class="verification-item">
                         <span class="verification-label">Confidence:</span> ${confidence}%

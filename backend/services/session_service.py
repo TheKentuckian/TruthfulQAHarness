@@ -743,10 +743,10 @@ Improved answer:"""
                 try:
                     # Verify the answer
                     result = verifier.verify(
-                        question=q_text,
-                        answer=answer,
+                        llm_answer=answer,
                         correct_answers=correct_answers,
-                        incorrect_answers=incorrect_answers
+                        incorrect_answers=incorrect_answers,
+                        question=q_text  # Pass question as kwarg for LLM judge
                     )
 
                     duration = time.time() - start_time

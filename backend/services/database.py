@@ -966,25 +966,48 @@ class EvaluationDatabase:
         self,
         session_id: int,
         phase_number: int = None,
-        question_id: int = None
+        question_id: int = None,
+        include_questions: bool = True
     ) -> List[Dict[str, Any]]:
-        """Get responses, optionally filtered by phase or question."""
+        """Get responses, optionally filtered by phase or question.
+
+        Args:
+            session_id: The session ID
+            phase_number: Optional filter by phase number
+            question_id: Optional filter by question ID
+            include_questions: If True, include question text and reference answers
+        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
-            query = "SELECT * FROM session_responses WHERE session_id = ?"
+            if include_questions:
+                # Join with questions table to get question text and reference answers
+                query = """
+                    SELECT
+                        r.*,
+                        q.question as question_text,
+                        q.correct_answers_json,
+                        q.incorrect_answers_json,
+                        q.category
+                    FROM session_responses r
+                    LEFT JOIN session_questions q ON r.question_id = q.id
+                    WHERE r.session_id = ?
+                """
+            else:
+                query = "SELECT * FROM session_responses WHERE session_id = ?"
+
             params = [session_id]
 
             if phase_number is not None:
-                query += " AND phase_number = ?"
+                query += " AND phase_number = ?" if not include_questions else " AND r.phase_number = ?"
                 params.append(phase_number)
 
             if question_id is not None:
-                query += " AND question_id = ?"
+                query += " AND question_id = ?" if not include_questions else " AND r.question_id = ?"
                 params.append(question_id)
 
-            query += " ORDER BY question_id, phase_number"
+            query += " ORDER BY question_id, phase_number" if not include_questions else " ORDER BY r.question_id, r.phase_number"
 
             cursor.execute(query, params)
 
@@ -996,6 +1019,13 @@ class EvaluationDatabase:
                     del r['metrics_json']
                 if r.get('is_truthful') is not None:
                     r['is_truthful'] = bool(r['is_truthful'])
+                # Parse question reference answers
+                if r.get('correct_answers_json'):
+                    r['correct_answers'] = json.loads(r['correct_answers_json'])
+                    del r['correct_answers_json']
+                if r.get('incorrect_answers_json'):
+                    r['incorrect_answers'] = json.loads(r['incorrect_answers_json'])
+                    del r['incorrect_answers_json']
                 responses.append(r)
 
             return responses
