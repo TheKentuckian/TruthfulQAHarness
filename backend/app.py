@@ -878,6 +878,33 @@ async def get_session_phase(session_id: int, phase_number: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sessions/{session_id}/cancel")
+async def cancel_session_phase(session_id: int):
+    """
+    Request cancellation of a running phase for a session.
+
+    Args:
+        session_id: The session ID
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        service.request_cancellation(session_id)
+        return {
+            "session_id": session_id,
+            "status": "cancellation_requested",
+            "message": "Cancellation requested. The phase will stop after the current question completes."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/sessions/run-full")
 async def run_full_session(request: FullSessionRequest):
     """

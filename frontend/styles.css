@@ -517,6 +517,11 @@ header h1 {
     color: #742a2a;
 }
 
+.phase-indicator.cancelled {
+    background: #feebc8;
+    color: #7b341e;
+}
+
 .phase-indicator.skipped {
     background: #fefcbf;
     color: #744210;
@@ -665,6 +670,12 @@ header h1 {
 .phase-box.completed .phase-status-icon { color: #48bb78; }
 .phase-box.failed .phase-status-icon { color: #f56565; }
 .phase-box.skipped .phase-status-icon { color: #ecc94b; }
+.phase-box.cancelled .phase-status-icon { color: #ed8936; }
+
+.phase-box.cancelled {
+    border-color: #ed8936;
+    background: #fffaf0;
+}
 
 .phase-time {
     font-size: 0.85em;

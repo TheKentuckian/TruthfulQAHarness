@@ -327,12 +327,23 @@ async function evaluateBatch() {
 }
 
 // Cancel evaluation (works for both quick evaluation and session phases)
-function cancelEvaluation() {
+async function cancelEvaluation() {
     if (abortController) {
         abortController.abort();
         console.log('Cancelling evaluation...');
     }
-    if (sessionAbortController) {
+    if (sessionAbortController && activeSession) {
+        // Request backend cancellation
+        try {
+            console.log('Requesting backend cancellation for session', activeSession.id);
+            await fetch(`${API_BASE}/api/sessions/${activeSession.id}/cancel`, {
+                method: 'POST'
+            });
+            console.log('Backend cancellation requested');
+        } catch (error) {
+            console.error('Error requesting cancellation:', error);
+        }
+        // Also abort the frontend fetch
         sessionAbortController.abort();
         console.log('Cancelling session phase...');
     }
@@ -870,12 +881,13 @@ function displaySessionsList(sessions, totalCount) {
             'running': '▶',
             'completed': '✓',
             'failed': '✗',
-            'skipped': '—'
+            'skipped': '—',
+            'cancelled': '⊘'
         };
 
         const phaseIndicators = [1, 2, 3, 4].map(num => {
             const status = phaseStatuses[num] || 'pending';
-            return `<span class="phase-indicator ${status}">${statusIcons[status]} P${num}</span>`;
+            return `<span class="phase-indicator ${status}">${statusIcons[status] || '○'} P${num}</span>`;
         }).join('');
 
         const createdAt = new Date(session.created_at).toLocaleString();
@@ -990,7 +1002,8 @@ function updatePhasePipeline() {
         'running': '▶',
         'completed': '✓',
         'failed': '✗',
-        'skipped': '—'
+        'skipped': '—',
+        'cancelled': '⊘'
     };
 
     [1, 2, 3, 4].forEach(num => {

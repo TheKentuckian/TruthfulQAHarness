@@ -1,8 +1,9 @@
 """Session service for managing testing sessions and phase execution."""
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from collections import Counter
+import threading
 
 from backend.services.database import get_database
 from backend.services.dataset_loader import TruthfulQALoader
@@ -14,6 +15,11 @@ from backend.models.llm_provider import LLMProviderFactory
 from backend.models.verifier import VerifierFactory
 
 
+class CancellationError(Exception):
+    """Raised when a phase execution is cancelled."""
+    pass
+
+
 class SessionService:
     """Service for managing testing sessions."""
 
@@ -21,6 +27,34 @@ class SessionService:
         self.db = get_database()
         self.dataset_loader = TruthfulQALoader()
         self._active_tracker: Optional[SessionTracker] = None
+        self._cancelled_sessions: Set[int] = set()
+        self._cancel_lock = threading.Lock()
+
+    # ============================================
+    # Cancellation Support
+    # ============================================
+
+    def request_cancellation(self, session_id: int) -> bool:
+        """Request cancellation of a running phase for a session."""
+        with self._cancel_lock:
+            self._cancelled_sessions.add(session_id)
+            print(f"[Session {session_id}] Cancellation requested")
+            return True
+
+    def is_cancelled(self, session_id: int) -> bool:
+        """Check if a session has been cancelled."""
+        with self._cancel_lock:
+            return session_id in self._cancelled_sessions
+
+    def clear_cancellation(self, session_id: int):
+        """Clear the cancellation flag for a session."""
+        with self._cancel_lock:
+            self._cancelled_sessions.discard(session_id)
+
+    def _check_cancellation(self, session_id: int):
+        """Check for cancellation and raise if cancelled."""
+        if self.is_cancelled(session_id):
+            raise CancellationError(f"Session {session_id} was cancelled")
 
     # ============================================
     # Session CRUD Operations
@@ -296,6 +330,9 @@ class SessionService:
             successful = 0
 
             for i, question in enumerate(questions):
+                # Check for cancellation before each question
+                self._check_cancellation(session_id)
+
                 q_text = question['question']
                 q_id = question['id']
                 q_idx = question.get('question_index', i + 1)
@@ -365,6 +402,21 @@ class SessionService:
             )
 
             return results_summary
+
+        except CancellationError:
+            # Handle cancellation gracefully
+            self.clear_cancellation(session_id)
+            cancel_msg = f"Phase 2 cancelled after {successful} of {len(questions)} questions"
+            print(f"[Session {session_id}] {cancel_msg}")
+            tracker.fail_phase(2, cancel_msg)
+            self.db.update_phase(
+                session_id, 2,
+                status='cancelled',
+                completed_at=datetime.now().isoformat(),
+                error=cancel_msg,
+                results={'cancelled': True, 'completed': successful, 'total': len(questions)}
+            )
+            raise
 
         except Exception as e:
             error_msg = str(e)
@@ -444,6 +496,9 @@ class SessionService:
             total_time = 0
 
             for question in questions:
+                # Check for cancellation before each question
+                self._check_cancellation(session_id)
+
                 q_id = question['id']
                 q_text = question['question']
                 q_idx = question.get('question_index', 0)
@@ -549,6 +604,21 @@ class SessionService:
             )
 
             return results_summary
+
+        except CancellationError:
+            # Handle cancellation gracefully
+            self.clear_cancellation(session_id)
+            cancel_msg = f"Phase 3 cancelled after {corrections_applied} of {len(questions)} questions"
+            print(f"[Session {session_id}] {cancel_msg}")
+            tracker.fail_phase(3, cancel_msg)
+            self.db.update_phase(
+                session_id, 3,
+                status='cancelled',
+                completed_at=datetime.now().isoformat(),
+                error=cancel_msg,
+                results={'cancelled': True, 'completed': corrections_applied, 'total': len(questions)}
+            )
+            raise
 
         except Exception as e:
             error_msg = str(e)
@@ -721,6 +791,9 @@ Improved answer:"""
             total_time = 0
 
             for question in questions:
+                # Check for cancellation before each question
+                self._check_cancellation(session_id)
+
                 q_id = question['id']
                 q_text = question['question']
                 q_idx = question.get('question_index', 0)
@@ -831,6 +904,21 @@ Improved answer:"""
             self.db.update_session(session_id, status='completed')
 
             return results_summary
+
+        except CancellationError:
+            # Handle cancellation gracefully
+            self.clear_cancellation(session_id)
+            cancel_msg = f"Phase 4 cancelled after {total_evaluated} of {len(questions)} questions"
+            print(f"[Session {session_id}] {cancel_msg}")
+            tracker.fail_phase(4, cancel_msg)
+            self.db.update_phase(
+                session_id, 4,
+                status='cancelled',
+                completed_at=datetime.now().isoformat(),
+                error=cancel_msg,
+                results={'cancelled': True, 'completed': total_evaluated, 'total': len(questions)}
+            )
+            raise
 
         except Exception as e:
             error_msg = str(e)
