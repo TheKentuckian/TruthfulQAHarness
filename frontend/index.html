@@ -283,6 +283,14 @@
                         </div>
                         <div id="session-gen-lm-config" style="display: none;">
                             <div class="form-group">
+                                <label for="session-gen-qwen-thinking">Qwen3 Thinking:</label>
+                                <select id="session-gen-qwen-thinking">
+                                    <option value="enabled" selected>Enabled (default)</option>
+                                    <option value="disabled">Disabled (faster, adds /no_think prefix)</option>
+                                </select>
+                                <small style="display: block; margin-top: 5px; color: #718096;">Disable for faster responses with Qwen3 models</small>
+                            </div>
+                            <div class="form-group">
                                 <label for="session-gen-lm-url">LM Studio URL:</label>
                                 <input type="text" id="session-gen-lm-url" value="http://localhost:1234/v1">
                             </div>

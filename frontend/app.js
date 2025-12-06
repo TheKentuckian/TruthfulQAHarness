@@ -1075,12 +1075,14 @@ function getPhaseConfig(phaseNumber) {
                 use_all: document.getElementById('session-use-all').checked
             };
         case 2:
+            const qwenThinking = document.getElementById('session-gen-qwen-thinking').value;
             return {
                 provider: document.getElementById('session-gen-provider').value,
                 model: document.getElementById('session-gen-model').value,
                 max_tokens: parseInt(document.getElementById('session-gen-max-tokens').value) || 1024,
                 temperature: parseFloat(document.getElementById('session-gen-temperature').value) || 1.0,
-                lm_studio_url: document.getElementById('session-gen-lm-url').value
+                lm_studio_url: document.getElementById('session-gen-lm-url').value,
+                qwen_thinking: qwenThinking === 'disabled'  // Pass true when disabled (to add /no_think prefix)
             };
         case 3:
             const method = document.getElementById('session-correct-method').value;
