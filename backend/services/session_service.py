@@ -120,7 +120,9 @@ class SessionService:
         # Check prerequisites
         if phase_number > 1:
             prev_phase = session['phases'].get(phase_number - 1, {})
-            if prev_phase.get('status') != 'completed':
+            prev_status = prev_phase.get('status')
+            # Allow 'completed' or 'skipped' (phase 3 is optional)
+            if prev_status not in ('completed', 'skipped'):
                 raise ValueError(
                     f"Cannot run phase {phase_number}: "
                     f"phase {phase_number - 1} not completed"
