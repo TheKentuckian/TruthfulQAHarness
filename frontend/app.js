@@ -328,24 +328,39 @@ async function evaluateBatch() {
 
 // Cancel evaluation (works for both quick evaluation and session phases)
 async function cancelEvaluation() {
-    if (abortController) {
+    console.log('Cancel button clicked');
+
+    // For quick evaluation
+    if (abortController && !sessionAbortController) {
         abortController.abort();
-        console.log('Cancelling evaluation...');
+        console.log('Quick evaluation cancelled');
     }
+
+    // For session phases
     if (sessionAbortController && activeSession) {
-        // Request backend cancellation
+        console.log('Requesting backend cancellation for session', activeSession.id);
+
+        // IMPORTANT: Send cancellation request FIRST, before aborting
+        // Use a separate fetch without the abort signal to ensure it completes
         try {
-            console.log('Requesting backend cancellation for session', activeSession.id);
-            await fetch(`${API_BASE}/api/sessions/${activeSession.id}/cancel`, {
-                method: 'POST'
+            const cancelResponse = await fetch(`${API_BASE}/api/sessions/${activeSession.id}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
             });
-            console.log('Backend cancellation requested');
+
+            if (cancelResponse.ok) {
+                console.log('Backend cancellation request sent successfully');
+            } else {
+                console.error('Backend cancellation request failed:', cancelResponse.status);
+            }
         } catch (error) {
-            console.error('Error requesting cancellation:', error);
+            console.error('Error sending cancellation request:', error);
         }
-        // Also abort the frontend fetch
+
+        // Now abort the frontend fetch - this will cause the phase request to fail
+        // The runPhase/resumePhase error handler will handle UI cleanup
         sessionAbortController.abort();
-        console.log('Cancelling session phase...');
+        console.log('Frontend connection aborted');
     }
 }
 

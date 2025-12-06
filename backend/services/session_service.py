@@ -150,6 +150,9 @@ class SessionService:
         if not session:
             raise ValueError(f"Session {session_id} not found")
 
+        # Clear any existing cancellation flag for this session
+        self.clear_cancellation(session_id)
+
         # Validate phase can be run
         if phase_number < 1 or phase_number > 4:
             raise ValueError(f"Invalid phase number: {phase_number}")
