@@ -118,6 +118,39 @@ class TruthfulQALoader:
         formatted["index"] = index
         return formatted
 
+    def get_questions_by_indices(self, indices: List[int]) -> List[Dict[str, Any]]:
+        """
+        Get specific questions by their indices (1-based).
+
+        Args:
+            indices: List of question indices (1-based, e.g., [1, 2, 3, 4])
+
+        Returns:
+            List of formatted question dictionaries
+
+        Raises:
+            ValueError: If any index is out of range
+        """
+        if self.dataset is None:
+            raise RuntimeError("Dataset not loaded")
+
+        questions = []
+        dataset_len = len(self.dataset)
+
+        for idx_1based in indices:
+            # Convert from 1-based to 0-based index
+            idx = idx_1based - 1
+
+            if idx < 0 or idx >= dataset_len:
+                raise ValueError(f"Index {idx_1based} out of range [1, {dataset_len}]")
+
+            item = self.dataset[idx]
+            formatted = self._format_question(item)
+            formatted["index"] = idx
+            questions.append(formatted)
+
+        return questions
+
     def get_all_questions(self) -> List[Dict[str, Any]]:
         """
         Get all questions from the dataset.

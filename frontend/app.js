@@ -1103,11 +1103,16 @@ function formatDuration(seconds) {
 function getPhaseConfig(phaseNumber) {
     switch (phaseNumber) {
         case 1:
+            const filterValue = document.getElementById('session-question-filter').value.trim();
+            const questionFilter = filterValue ?
+                filterValue.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0) :
+                null;
             return {
                 sample_size: parseInt(document.getElementById('session-sample-size').value) || 10,
                 seed: document.getElementById('session-seed').value ?
                     parseInt(document.getElementById('session-seed').value) : null,
-                use_all: document.getElementById('session-use-all').checked
+                use_all: document.getElementById('session-use-all').checked,
+                question_filter: questionFilter
             };
         case 2:
             const qwenThinking = document.getElementById('session-gen-qwen-thinking').value;
