@@ -222,6 +222,7 @@ class SessionService:
         sample_size = config.get('sample_size', 10)
         seed = config.get('seed')
         use_all = config.get('use_all', False)
+        question_filter = config.get('question_filter')
 
         # Start phase tracking
         tracker.start_phase(1, 1, config)  # 1 item for the gather operation
@@ -238,7 +239,10 @@ class SessionService:
             )
 
             # Load questions
-            if use_all:
+            if question_filter:
+                # Use specific question indices (1-based)
+                questions = self.dataset_loader.get_questions_by_indices(question_filter)
+            elif use_all:
                 questions = self.dataset_loader.get_all_questions()
             else:
                 questions = self.dataset_loader.get_sample(sample_size, seed)
@@ -257,7 +261,8 @@ class SessionService:
                 'categories': dict(categories),
                 'sample_size': sample_size,
                 'seed': seed,
-                'use_all': use_all
+                'use_all': use_all,
+                'question_filter': question_filter
             }
 
             # Update tracker

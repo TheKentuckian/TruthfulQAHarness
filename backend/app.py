@@ -145,6 +145,7 @@ class GatherPhaseConfig(BaseModel):
     sample_size: int = Field(default=10, description="Number of questions to sample")
     seed: Optional[int] = Field(default=None, description="Random seed for reproducibility")
     use_all: bool = Field(default=False, description="Use all questions instead of sampling")
+    question_filter: Optional[list[int]] = Field(default=None, description="Specific question indices to gather (1-based)")
 
 
 class GeneratePhaseConfig(BaseModel):
