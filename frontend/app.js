@@ -1129,11 +1129,15 @@ function getPhaseConfig(phaseNumber) {
             if (method === 'none') {
                 return { method: 'none' };
             }
+            const correctQwenThinking = document.getElementById('session-correct-qwen-thinking').value;
             return {
                 method: method,
                 provider: document.getElementById('session-correct-provider').value,
                 model: document.getElementById('session-correct-model').value,
-                lm_studio_url: document.getElementById('session-correct-lm-url').value
+                max_tokens: parseInt(document.getElementById('session-correct-max-tokens').value) || 1024,
+                temperature: parseFloat(document.getElementById('session-correct-temperature').value) || 1.0,
+                lm_studio_url: document.getElementById('session-correct-lm-url').value,
+                qwen_thinking: correctQwenThinking === 'disabled'  // Pass true when disabled (to add /no_think prefix)
             };
         case 4:
             return {

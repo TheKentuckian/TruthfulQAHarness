@@ -505,12 +505,14 @@ class SessionService:
             max_tokens = config.get('max_tokens', 1024)
             temperature = config.get('temperature', 1.0)
             lm_studio_url = config.get('lm_studio_url', 'http://localhost:1234/v1')
+            qwen_thinking = config.get('qwen_thinking', False)
             skip_threshold = config.get('skip_threshold', 0.9)
 
             # Create provider (max_tokens and temperature go to generate(), not constructor)
             provider_config = {'model': model}
             if provider_type == 'lm_studio':
                 provider_config['base_url'] = lm_studio_url
+                provider_config['qwen_no_think'] = qwen_thinking
 
             llm = LLMProviderFactory.create(provider_type, **provider_config)
             # Store generation params to pass to generate() calls
@@ -560,6 +562,11 @@ class SessionService:
                         )
                     else:
                         raise ValueError(f"Unknown correction method: {method}")
+
+                    # Trim empty <think></think> blocks from qwen3 responses when thinking is disabled
+                    if qwen_thinking and model and 'qwen' in model.lower():
+                        # Remove empty think blocks at the beginning of the response
+                        corrected = re.sub(r'^\s*<think>\s*</think>\s*', '', corrected, flags=re.IGNORECASE)
 
                     duration = time.time() - start_time
                     total_time += duration
