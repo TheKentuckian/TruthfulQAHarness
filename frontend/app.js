@@ -340,6 +340,19 @@ async function cancelEvaluation() {
     if (sessionAbortController && activeSession) {
         console.log('Requesting backend cancellation for session', activeSession.id);
 
+        // Update loading message to show cancellation is in progress
+        const loadingMessage = document.getElementById('loading-message');
+        if (loadingMessage) {
+            loadingMessage.textContent = 'Cancelling... (waiting for current operation to complete)';
+        }
+
+        // Disable cancel button to prevent multiple clicks
+        const cancelBtn = document.getElementById('cancel-batch-btn');
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = 'Cancelling...';
+        }
+
         // IMPORTANT: Send cancellation request FIRST, before aborting
         // Use a separate fetch without the abort signal to ensure it completes
         try {
@@ -548,15 +561,20 @@ function showLoading(show, message = 'Loading...', showCancel = false) {
         }
         loadingOverlay.style.display = 'flex';
 
-        // Show/hide cancel button
+        // Show/hide cancel button and reset its state
         if (showCancel) {
             cancelBatchBtn.style.display = 'inline-block';
+            cancelBatchBtn.disabled = false;
+            cancelBatchBtn.textContent = 'Cancel Evaluation';
         } else {
             cancelBatchBtn.style.display = 'none';
         }
     } else {
         loadingOverlay.style.display = 'none';
         cancelBatchBtn.style.display = 'none';
+        // Reset cancel button state
+        cancelBatchBtn.disabled = false;
+        cancelBatchBtn.textContent = 'Cancel Evaluation';
     }
 }
 
@@ -1129,15 +1147,25 @@ function getPhaseConfig(phaseNumber) {
             if (method === 'none') {
                 return { method: 'none' };
             }
-            const correctQwenThinking = document.getElementById('session-correct-qwen-thinking').value;
+            const correctProvider = document.getElementById('session-correct-provider').value;
+            const correctQwenThinkingEl = document.getElementById('session-correct-qwen-thinking');
+            const correctQwenThinking = correctQwenThinkingEl ? correctQwenThinkingEl.value : 'enabled';
+            const qwenThinkingEnabled = correctQwenThinking === 'disabled'; // true when disabled
+
+            console.log('Phase 3 config:', {
+                provider: correctProvider,
+                qwen_thinking_toggle: correctQwenThinking,
+                qwen_thinking_flag: qwenThinkingEnabled
+            });
+
             return {
                 method: method,
-                provider: document.getElementById('session-correct-provider').value,
+                provider: correctProvider,
                 model: document.getElementById('session-correct-model').value,
                 max_tokens: parseInt(document.getElementById('session-correct-max-tokens').value) || 1024,
                 temperature: parseFloat(document.getElementById('session-correct-temperature').value) || 1.0,
                 lm_studio_url: document.getElementById('session-correct-lm-url').value,
-                qwen_thinking: correctQwenThinking === 'disabled'  // Pass true when disabled (to add /no_think prefix)
+                qwen_thinking: qwenThinkingEnabled  // Pass true when disabled (to add /no_think prefix)
             };
         case 4:
             return {

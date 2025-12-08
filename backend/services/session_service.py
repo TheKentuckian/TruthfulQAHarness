@@ -508,11 +508,16 @@ class SessionService:
             qwen_thinking = config.get('qwen_thinking', False)
             skip_threshold = config.get('skip_threshold', 0.9)
 
+            print(f"[Phase 3] Correction config - Provider: {provider_type}, Model: {model}")
+            print(f"[Phase 3] Max tokens: {max_tokens}, Temperature: {temperature}")
+            print(f"[Phase 3] Qwen thinking disabled: {qwen_thinking}")
+
             # Create provider (max_tokens and temperature go to generate(), not constructor)
             provider_config = {'model': model}
             if provider_type == 'lm_studio':
                 provider_config['base_url'] = lm_studio_url
                 provider_config['qwen_no_think'] = qwen_thinking
+                print(f"[Phase 3] LM Studio config - qwen_no_think set to: {qwen_thinking}")
 
             llm = LLMProviderFactory.create(provider_type, **provider_config)
             # Store generation params to pass to generate() calls
