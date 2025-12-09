@@ -528,13 +528,13 @@ class SessionService:
             improvements = []
             total_time = 0
 
-            for question in questions:
+            for i, question in enumerate(questions):
                 # Check for cancellation before each question
                 self._check_cancellation(session_id)
 
                 q_id = question['id']
                 q_text = question['question']
-                q_idx = question.get('question_index', 0)
+                q_idx = question.get('question_index', i + 1)
 
                 prev_resp = response_map.get(q_id)
                 if not prev_resp or prev_resp.get('error'):
@@ -836,13 +836,13 @@ Improved answer:"""
             total_confidence = 0
             total_time = 0
 
-            for question in questions:
+            for i, question in enumerate(questions):
                 # Check for cancellation before each question
                 self._check_cancellation(session_id)
 
                 q_id = question['id']
                 q_text = question['question']
-                q_idx = question.get('question_index', 0)
+                q_idx = question.get('question_index', i + 1)
                 correct_answers = question.get('correct_answers', [])
                 incorrect_answers = question.get('incorrect_answers', [])
 
