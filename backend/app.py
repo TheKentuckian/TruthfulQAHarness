@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import os
+import asyncio
 
 from backend.config import settings
 from backend.models.llm_provider import LLMProviderFactory
@@ -807,7 +808,9 @@ async def run_session_phase(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        result = service.run_phase(session_id, phase_number, config)
+        # Run phase in thread pool to avoid blocking the event loop
+        # This allows the cancel endpoint to be processed while phase is running
+        result = await asyncio.to_thread(service.run_phase, session_id, phase_number, config)
         return {
             "session_id": session_id,
             "phase_number": phase_number,
@@ -842,7 +845,9 @@ async def rerun_session_phase(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        result = service.rerun_phase(session_id, phase_number, config)
+        # Run phase in thread pool to avoid blocking the event loop
+        # This allows the cancel endpoint to be processed while phase is running
+        result = await asyncio.to_thread(service.rerun_phase, session_id, phase_number, config)
         return {
             "session_id": session_id,
             "phase_number": phase_number,
@@ -877,7 +882,9 @@ async def resume_session_phase(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        result = service.run_phase(session_id, phase_number, config, resume=True)
+        # Run phase in thread pool to avoid blocking the event loop
+        # This allows the cancel endpoint to be processed while phase is running
+        result = await asyncio.to_thread(service.run_phase, session_id, phase_number, config, resume=True)
         return {
             "session_id": session_id,
             "phase_number": phase_number,
