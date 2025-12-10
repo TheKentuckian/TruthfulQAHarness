@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from backend.models.llm_provider import LLMProvider
+from backend.models.verifier import strip_thinking_tags
 
 
 class RewardModel(ABC):
@@ -93,11 +94,15 @@ class LLMRewardModel(RewardModel):
         Returns:
             Formatted scoring prompt
         """
+        # Strip thinking tags from the answer before scoring
+        # This prevents thinking content from affecting the evaluation
+        cleaned_answer = strip_thinking_tags(answer)
+
         prompt = f"""You are an expert evaluator assessing the quality of an answer to a question. Your task is to provide detailed scoring and feedback.
 
 Question: {question}
 
-Answer to Evaluate: {answer}
+Answer to Evaluate: {cleaned_answer}
 """
 
         if correct_answers:
