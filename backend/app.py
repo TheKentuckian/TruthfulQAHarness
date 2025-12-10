@@ -898,6 +898,47 @@ async def resume_session_phase(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sessions/{session_id}/phases/{phase_number}/retry")
+async def retry_session_phase(
+    session_id: int,
+    phase_number: int,
+    config: Dict[str, Any]
+):
+    """
+    Retry failed questions for a phase.
+
+    Currently only supports Phase 2 (Generation).
+    Re-generates responses for questions that either have no response
+    or have a response with an error.
+
+    Args:
+        session_id: The session ID
+        phase_number: Phase number (currently only 2 is supported)
+        config: Phase configuration
+    """
+    try:
+        service = get_session_service()
+        session = service.get_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Run retry in thread pool to avoid blocking the event loop
+        # This allows the cancel endpoint to be processed while retry is running
+        result = await asyncio.to_thread(service.retry_phase, session_id, phase_number, config)
+        return {
+            "session_id": session_id,
+            "phase_number": phase_number,
+            "result": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{session_id}/phases/{phase_number}")
 async def get_session_phase(session_id: int, phase_number: int):
     """
