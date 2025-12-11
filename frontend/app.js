@@ -849,6 +849,19 @@ if (deleteSessionBtn) {
     deleteSessionBtn.addEventListener('click', deleteCurrentSession);
 }
 
+// Sessions list pagination listeners
+document.getElementById('sessions-prev-btn')?.addEventListener('click', () => {
+    if (sessionsPage > 0) {
+        sessionsPage--;
+        loadSessionsList();
+    }
+});
+
+document.getElementById('sessions-next-btn')?.addEventListener('click', () => {
+    sessionsPage++;
+    loadSessionsList();
+});
+
 // Phase configuration listeners
 document.getElementById('session-gen-provider')?.addEventListener('change', (e) => {
     const lmConfig = document.getElementById('session-gen-lm-config');
