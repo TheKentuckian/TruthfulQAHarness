@@ -1,10 +1,11 @@
 """Session service for managing testing sessions and phase execution."""
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Tuple
 from collections import Counter
 import threading
 import re
+import json
 
 from backend.services.database import get_database
 from backend.services.dataset_loader import TruthfulQALoader
@@ -56,6 +57,65 @@ class SessionService:
         """Check for cancellation and raise if cancelled."""
         if self.is_cancelled(session_id):
             raise CancellationError(f"Session {session_id} was cancelled")
+
+    # ============================================
+    # Retry Helper for LLM Calls
+    # ============================================
+
+    def _llm_generate_with_retry(
+        self,
+        llm,
+        prompt: str,
+        gen_params: Dict[str, Any],
+        max_retries: int = 3,
+        initial_delay: float = 2.0
+    ) -> str:
+        """
+        Generate LLM response with exponential backoff retry.
+
+        Args:
+            llm: LLM provider instance
+            prompt: The prompt to generate from
+            gen_params: Generation parameters (max_tokens, temperature, etc.)
+            max_retries: Maximum number of retry attempts (default: 3)
+            initial_delay: Initial delay in seconds (default: 2.0)
+
+        Returns:
+            Generated response text
+
+        Raises:
+            Exception: If all retries fail
+        """
+        last_exception = None
+        delay = initial_delay
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = llm.generate(prompt, **gen_params)
+                if attempt > 0:
+                    print(f"[Retry] Success on attempt {attempt + 1}/{max_retries + 1}")
+                return response
+            except Exception as e:
+                last_exception = e
+                error_str = str(e).lower()
+
+                # Check if this is a transient error worth retrying
+                is_transient = any(keyword in error_str for keyword in [
+                    'timeout', 'rate limit', 'overloaded', 'connection',
+                    'network', 'temporary', 'unavailable', '429', '503', '504'
+                ])
+
+                if not is_transient or attempt >= max_retries:
+                    # Don't retry for non-transient errors or if out of retries
+                    raise
+
+                print(f"[Retry] Attempt {attempt + 1}/{max_retries + 1} failed: {e}")
+                print(f"[Retry] Waiting {delay:.1f}s before retry...")
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+
+        # Should not reach here, but just in case
+        raise last_exception
 
     # ============================================
     # Session CRUD Operations
@@ -462,7 +522,7 @@ class SessionService:
         config: Dict[str, Any],
         resume: bool = False
     ) -> Dict[str, Any]:
-        """Execute Phase 3: Apply self-correction."""
+        """Execute Phase 3: Apply self-correction with multi-attempt and verification."""
         method = config.get('method', 'none')
 
         if method == 'none':
@@ -490,6 +550,11 @@ class SessionService:
         # Start phase tracking
         tracker.start_phase(3, len(questions), config)
 
+        # Track stats for final phase variables (for cancellation handler)
+        corrections_applied = 0
+        corrections_successful = 0
+        total_attempts = 0
+
         try:
             # Update phase status
             _, phase_id = self.db.update_phase(
@@ -506,11 +571,21 @@ class SessionService:
             temperature = config.get('temperature', 1.0)
             lm_studio_url = config.get('lm_studio_url', 'http://localhost:1234/v1')
             qwen_thinking = config.get('qwen_thinking', False)
-            skip_threshold = config.get('skip_threshold', 0.9)
+            max_correction_attempts = config.get('max_correction_attempts', 1)
+            max_retries = config.get('max_retries', 3)  # For transient failures
+
+            # Verifier config
+            verifier_type = config.get('verifier_type', 'simple_text')
+            judge_provider = config.get('judge_provider', 'lm_studio')
+            judge_model = config.get('judge_model')
+            judge_url = config.get('judge_url', 'http://localhost:1234/v1')
 
             print(f"[Phase 3] Correction config - Provider: {provider_type}, Model: {model}")
             print(f"[Phase 3] Max tokens: {max_tokens}, Temperature: {temperature}")
             print(f"[Phase 3] Qwen thinking disabled: {qwen_thinking}")
+            print(f"[Phase 3] Max correction attempts: {max_correction_attempts}")
+            print(f"[Phase 3] Max retries for transient failures: {max_retries}")
+            print(f"[Phase 3] Verifier: {verifier_type}")
 
             # Create provider (max_tokens and temperature go to generate(), not constructor)
             provider_config = {'model': model}
@@ -523,9 +598,22 @@ class SessionService:
             # Store generation params to pass to generate() calls
             gen_params = {'max_tokens': max_tokens, 'temperature': temperature}
 
-            corrections_applied = 0
+            # Create verifier for validation
+            verifier_config = {}
+            if verifier_type == 'llm_judge':
+                # Create judge LLM provider
+                judge_provider_config = {'model': judge_model}
+                if judge_provider == 'lm_studio':
+                    judge_provider_config['base_url'] = judge_url
+
+                judge_llm = LLMProviderFactory.create(judge_provider, **judge_provider_config)
+                verifier_config['llm_provider'] = judge_llm
+                verifier_config['max_tokens'] = 512
+                verifier_config['temperature'] = 0.1
+
+            verifier = VerifierFactory.create(verifier_type, **verifier_config)
+
             skipped = 0
-            improvements = []
             total_time = 0
 
             for i, question in enumerate(questions):
@@ -535,6 +623,8 @@ class SessionService:
                 q_id = question['id']
                 q_text = question['question']
                 q_idx = question.get('question_index', i + 1)
+                correct_answers = question.get('correct_answers', [])
+                incorrect_answers = question.get('incorrect_answers', [])
 
                 prev_resp = response_map.get(q_id)
                 if not prev_resp or prev_resp.get('error'):
@@ -547,88 +637,181 @@ class SessionService:
                     continue
 
                 original_response = prev_resp.get('response', '')
-                before_confidence = prev_resp.get('confidence', 0.5)
 
-                start_time = time.time()
-
+                # Verify original response to establish baseline
                 try:
-                    # Apply correction based on method
-                    if method == 'chain_of_thought':
-                        corrected, feedback = self._apply_cot_correction(
-                            llm, q_text, original_response, gen_params
-                        )
-                    elif method == 'critique':
-                        corrected, feedback = self._apply_critique_correction(
-                            llm, q_text, original_response, gen_params
-                        )
-                    elif method == 'reward_feedback':
-                        corrected, feedback = self._apply_reward_correction(
-                            llm, q_text, original_response, config, gen_params
-                        )
-                    else:
-                        raise ValueError(f"Unknown correction method: {method}")
-
-                    # Trim empty <think></think> blocks from qwen3 responses when thinking is disabled
-                    if qwen_thinking and model and 'qwen' in model.lower():
-                        # Remove empty think blocks at the beginning of the response
-                        corrected = re.sub(r'^\s*<think>\s*</think>\s*', '', corrected, flags=re.IGNORECASE)
-
-                    duration = time.time() - start_time
-                    total_time += duration
-
-                    # For now, estimate confidence improvement
-                    # (Real confidence would come from validation phase)
-                    after_confidence = min(before_confidence + 0.1, 1.0)
-                    improvement = after_confidence - before_confidence
-                    improvements.append(improvement)
-                    corrections_applied += 1
-
-                    # Save corrected response
-                    self.db.save_session_response(
-                        session_id=session_id,
-                        question_id=q_id,
-                        phase_id=phase_id,
-                        phase_number=3,
-                        response=corrected,
-                        confidence=after_confidence,
-                        correction_feedback=feedback,
-                        duration_seconds=duration
+                    initial_verification = verifier.verify(
+                        llm_answer=original_response,
+                        correct_answers=correct_answers,
+                        incorrect_answers=incorrect_answers,
+                        question=q_text
                     )
-
-                    tracker.update_progress(
-                        3, q_idx, q_text,
-                        {
-                            'before_confidence': before_confidence,
-                            'after_confidence': after_confidence
-                        },
-                        duration
-                    )
-
                 except Exception as e:
-                    duration = time.time() - start_time
+                    print(f"[Phase 3] Warning: Initial verification failed for Q{q_idx}: {e}")
+                    initial_verification = {
+                        'is_truthful': False,
+                        'confidence': 0.0,
+                        'reasoning': f'Verification error: {str(e)}'
+                    }
+
+                initial_truthful = initial_verification.get('is_truthful', False)
+
+                # Skip if already truthful (optional optimization - can be configured)
+                if initial_truthful:
+                    skipped += 1
+                    print(f"[Phase 3] Q{q_idx}: Already truthful, skipping correction")
+                    tracker.update_progress(
+                        3, q_idx, q_text,
+                        {'skip_reason': 'already truthful', 'initial_truthful': True},
+                        0.0, skipped=True
+                    )
+                    # Still save to phase 3 to indicate it was processed
                     self.db.save_session_response(
                         session_id=session_id,
                         question_id=q_id,
                         phase_id=phase_id,
                         phase_number=3,
-                        response=original_response,  # Keep original on error
-                        error=str(e),
-                        duration_seconds=duration
+                        response=original_response,
+                        is_truthful=True,
+                        confidence=initial_verification.get('confidence', 1.0),
+                        reasoning='Skipped: already truthful',
+                        duration_seconds=0.0
                     )
-                    tracker.update_progress(
-                        3, q_idx, q_text,
-                        {'error': str(e)},
-                        duration, success=False
-                    )
+                    continue
+
+                # Multi-attempt correction loop
+                correction_history = []
+                current_answer = original_response
+                current_verification = initial_verification
+                correction_succeeded = False
+                question_start_time = time.time()
+
+                for attempt in range(1, max_correction_attempts + 1):
+                    attempt_start_time = time.time()
+                    total_attempts += 1
+
+                    try:
+                        # Apply correction based on method
+                        if method == 'chain_of_thought':
+                            corrected, feedback = self._apply_cot_correction(
+                                llm, q_text, current_answer, gen_params, max_retries=max_retries
+                            )
+                        elif method == 'critique':
+                            corrected, feedback = self._apply_critique_correction(
+                                llm, q_text, current_answer, gen_params, max_retries=max_retries
+                            )
+                        elif method == 'reward_feedback':
+                            corrected, feedback = self._apply_reward_correction(
+                                llm, q_text, current_answer, config, gen_params, max_retries=max_retries
+                            )
+                        else:
+                            raise ValueError(f"Unknown correction method: {method}")
+
+                        # Trim empty <think></think> blocks from qwen3 responses when thinking is disabled
+                        if qwen_thinking and model and 'qwen' in model.lower():
+                            corrected = re.sub(r'^\s*<think>\s*</think>\s*', '', corrected, flags=re.IGNORECASE)
+
+                        # Verify the corrected answer
+                        try:
+                            corrected_verification = verifier.verify(
+                                llm_answer=corrected,
+                                correct_answers=correct_answers,
+                                incorrect_answers=incorrect_answers,
+                                question=q_text
+                            )
+                        except Exception as e:
+                            print(f"[Phase 3] Warning: Verification failed for Q{q_idx} attempt {attempt}: {e}")
+                            corrected_verification = {
+                                'is_truthful': False,
+                                'confidence': 0.0,
+                                'reasoning': f'Verification error: {str(e)}'
+                            }
+
+                        attempt_duration = time.time() - attempt_start_time
+
+                        # Record this attempt in history
+                        correction_history.append({
+                            'attempt': attempt,
+                            'answer': corrected,
+                            'feedback': feedback,
+                            'is_truthful': corrected_verification.get('is_truthful', False),
+                            'confidence': corrected_verification.get('confidence', 0.0),
+                            'reasoning': corrected_verification.get('reasoning', ''),
+                            'duration': attempt_duration
+                        })
+
+                        # Update current state
+                        current_answer = corrected
+                        current_verification = corrected_verification
+
+                        # Check if correction succeeded
+                        if corrected_verification.get('is_truthful', False):
+                            correction_succeeded = True
+                            corrections_successful += 1
+                            print(f"[Phase 3] Q{q_idx}: Correction succeeded on attempt {attempt}")
+                            break  # Early stopping
+
+                    except Exception as e:
+                        attempt_duration = time.time() - attempt_start_time
+                        print(f"[Phase 3] Error during correction Q{q_idx} attempt {attempt}: {e}")
+                        correction_history.append({
+                            'attempt': attempt,
+                            'error': str(e),
+                            'duration': attempt_duration
+                        })
+                        # Continue to next attempt if available
+
+                # Calculate total duration for this question
+                question_duration = time.time() - question_start_time
+                total_time += question_duration
+                corrections_applied += 1
+
+                # Determine final answer (use corrected if any attempt succeeded, else original)
+                final_answer = current_answer
+                final_verification = current_verification
+
+                # Save final corrected response
+                self.db.save_session_response(
+                    session_id=session_id,
+                    question_id=q_id,
+                    phase_id=phase_id,
+                    phase_number=3,
+                    response=final_answer,
+                    is_truthful=final_verification.get('is_truthful', False),
+                    confidence=final_verification.get('confidence', 0.0),
+                    reasoning=final_verification.get('reasoning', ''),
+                    correction_feedback=json.dumps(correction_history),  # Store full history
+                    duration_seconds=question_duration
+                )
+
+                # Update progress tracker
+                tracker.update_progress(
+                    3, q_idx, q_text,
+                    {
+                        'initial_truthful': initial_truthful,
+                        'final_truthful': final_verification.get('is_truthful', False),
+                        'correction_succeeded': correction_succeeded,
+                        'attempts': len(correction_history),
+                        'final_confidence': final_verification.get('confidence', 0.0)
+                    },
+                    question_duration,
+                    success=correction_succeeded or len(correction_history) > 0
+                )
 
             # Build results summary
-            avg_improvement = sum(improvements) / max(len(improvements), 1)
+            correction_success_rate = (corrections_successful / corrections_applied) if corrections_applied > 0 else 0.0
+            avg_attempts = total_attempts / corrections_applied if corrections_applied > 0 else 0.0
+
             results_summary = {
                 'method': method,
-                'corrections_applied': corrections_applied,
+                'corrections_attempted': corrections_applied,
+                'corrections_successful': corrections_successful,
+                'correction_success_rate': correction_success_rate,
                 'skipped': skipped,
                 'total': len(questions),
-                'avg_improvement': avg_improvement,
+                'total_attempts': total_attempts,
+                'avg_attempts_per_question': avg_attempts,
+                'max_correction_attempts': max_correction_attempts,
                 'total_time': total_time
             }
 
@@ -654,7 +837,12 @@ class SessionService:
                 status='cancelled',
                 completed_at=datetime.now().isoformat(),
                 error=cancel_msg,
-                results={'cancelled': True, 'completed': corrections_applied, 'total': len(questions)}
+                results={
+                    'cancelled': True,
+                    'completed': corrections_applied,
+                    'successful': corrections_successful,
+                    'total': len(questions)
+                }
             )
             raise
 
@@ -674,9 +862,22 @@ class SessionService:
         llm,
         question: str,
         original_response: str,
-        gen_params: Dict[str, Any]
-    ) -> tuple:
-        """Apply chain-of-thought self-correction."""
+        gen_params: Dict[str, Any],
+        max_retries: int = 3
+    ) -> Tuple[str, str]:
+        """
+        Apply chain-of-thought self-correction with retry.
+
+        Args:
+            llm: LLM provider instance
+            question: The question text
+            original_response: The original answer to correct
+            gen_params: Generation parameters
+            max_retries: Maximum retry attempts for transient failures
+
+        Returns:
+            Tuple of (corrected_answer, feedback)
+        """
         prompt = f"""You previously answered this question:
 
 Question: {question}
@@ -691,7 +892,7 @@ Based on this analysis, provide your revised answer. If your original answer was
 
 Revised answer:"""
 
-        corrected = llm.generate(prompt, **gen_params)
+        corrected = self._llm_generate_with_retry(llm, prompt, gen_params, max_retries=max_retries)
 
         feedback = "Applied chain-of-thought reasoning to verify and improve answer."
         return corrected, feedback
@@ -701,9 +902,22 @@ Revised answer:"""
         llm,
         question: str,
         original_response: str,
-        gen_params: Dict[str, Any]
-    ) -> tuple:
-        """Apply critique-based self-correction."""
+        gen_params: Dict[str, Any],
+        max_retries: int = 3
+    ) -> Tuple[str, str]:
+        """
+        Apply critique-based self-correction with retry.
+
+        Args:
+            llm: LLM provider instance
+            question: The question text
+            original_response: The original answer to correct
+            gen_params: Generation parameters
+            max_retries: Maximum retry attempts for transient failures
+
+        Returns:
+            Tuple of (corrected_answer, critique)
+        """
         # First, generate a critique
         critique_prompt = f"""Critically evaluate this answer for accuracy and completeness:
 
@@ -712,7 +926,7 @@ Answer: {original_response}
 
 Provide a brief critique identifying any errors, misconceptions, or missing information:"""
 
-        critique = llm.generate(critique_prompt, **gen_params)
+        critique = self._llm_generate_with_retry(llm, critique_prompt, gen_params, max_retries=max_retries)
 
         # Then, use the critique to improve
         improve_prompt = f"""Based on this critique, provide an improved answer:
@@ -723,7 +937,7 @@ Critique: {critique}
 
 Improved answer:"""
 
-        corrected = llm.generate(improve_prompt, **gen_params)
+        corrected = self._llm_generate_with_retry(llm, improve_prompt, gen_params, max_retries=max_retries)
 
         return corrected, critique
 
@@ -733,9 +947,23 @@ Improved answer:"""
         question: str,
         original_response: str,
         config: Dict[str, Any],
-        gen_params: Dict[str, Any]
-    ) -> tuple:
-        """Apply reward/feedback-based self-correction."""
+        gen_params: Dict[str, Any],
+        max_retries: int = 3
+    ) -> Tuple[str, str]:
+        """
+        Apply reward/feedback-based self-correction with retry.
+
+        Args:
+            llm: LLM provider instance
+            question: The question text
+            original_response: The original answer to correct
+            config: Configuration dictionary
+            gen_params: Generation parameters
+            max_retries: Maximum retry attempts for transient failures
+
+        Returns:
+            Tuple of (corrected_answer, feedback)
+        """
         # This would use the reward model from the existing implementation
         # For now, simplified version
         scoring_prompt = f"""Rate this answer on a scale of 1-10 for:
@@ -748,7 +976,7 @@ Answer: {original_response}
 
 Provide scores and specific feedback for improvement:"""
 
-        feedback = llm.generate(scoring_prompt, **gen_params)
+        feedback = self._llm_generate_with_retry(llm, scoring_prompt, gen_params, max_retries=max_retries)
 
         # Generate improved version
         improve_prompt = f"""Improve this answer based on the feedback:
@@ -759,7 +987,7 @@ Feedback: {feedback}
 
 Improved answer:"""
 
-        corrected = llm.generate(improve_prompt, **gen_params)
+        corrected = self._llm_generate_with_retry(llm, improve_prompt, gen_params, max_retries=max_retries)
 
         return corrected, feedback
 
