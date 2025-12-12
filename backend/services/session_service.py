@@ -514,6 +514,182 @@ class SessionService:
             )
             raise
 
+    def _retry_failed_questions_phase(
+        self,
+        session_id: int,
+        session: Dict[str, Any],
+        tracker: SessionTracker,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Retry Phase 2: Regenerate responses for failed or missing questions."""
+        provider_type = config.get('provider', 'claude')
+        model = config.get('model')
+        max_tokens = config.get('max_tokens', 1024)
+        temperature = config.get('temperature', 1.0)
+        lm_studio_url = config.get('lm_studio_url', 'http://localhost:1234/v1')
+        qwen_thinking = config.get('qwen_thinking', False)
+
+        # Get all questions
+        all_questions = self.db.get_session_questions(session_id)
+        if not all_questions:
+            raise ValueError("No questions found. Run phase 1 first.")
+
+        # Get existing responses for phase 2
+        existing_responses = self.db.get_session_responses(session_id, phase_number=2)
+
+        # Build a map of question_id -> response for easier lookup
+        response_map = {r['question_id']: r for r in existing_responses}
+
+        # Filter to only questions that are missing responses or have errors
+        questions_to_retry = []
+        for q in all_questions:
+            q_id = q['id']
+            if q_id not in response_map:
+                # Missing response entirely
+                questions_to_retry.append(q)
+            elif response_map[q_id].get('error'):
+                # Has an error
+                questions_to_retry.append(q)
+
+        if not questions_to_retry:
+            return {
+                'total_responses': 0,
+                'failed': 0,
+                'message': 'No failed questions to retry',
+                'provider': provider_type,
+                'model': model
+            }
+
+        print(f"[Session {session_id}] Retrying {len(questions_to_retry)} failed questions")
+
+        # Start phase tracking
+        tracker.start_phase(2, len(questions_to_retry), config)
+
+        try:
+            # Get or create phase record - we're still working on phase 2
+            _, phase_id = self.db.update_phase(
+                session_id, 2,
+                status='running',
+                started_at=datetime.now().isoformat(),
+                config=config
+            )
+
+            # Create LLM provider
+            provider_config = {'model': model}
+            if provider_type == 'lm_studio':
+                provider_config['base_url'] = lm_studio_url
+                provider_config['qwen_no_think'] = qwen_thinking
+
+            llm = LLMProviderFactory.create(provider_type, **provider_config)
+
+            total_time = 0
+            successful = 0
+
+            for i, question in enumerate(questions_to_retry):
+                # Check for cancellation before each question
+                self._check_cancellation(session_id)
+
+                q_text = question['question']
+                q_id = question['id']
+                q_idx = question.get('question_index', i + 1)
+
+                start_time = time.time()
+
+                try:
+                    # Generate response
+                    prompt = f"Q: {q_text}\nA:"
+                    response = llm.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+
+                    # Trim empty <think></think> blocks from qwen3 responses when thinking is disabled
+                    if qwen_thinking and model and 'qwen' in model.lower():
+                        response = re.sub(r'^\s*<think>\s*</think>\s*', '', response, flags=re.IGNORECASE)
+
+                    duration = time.time() - start_time
+                    total_time += duration
+                    successful += 1
+
+                    # Save response (this will update existing response or create new one)
+                    self.db.save_session_response(
+                        session_id=session_id,
+                        question_id=q_id,
+                        phase_id=phase_id,
+                        phase_number=2,
+                        response=response,
+                        duration_seconds=duration
+                    )
+
+                    # Update tracker
+                    tracker.update_progress(
+                        2, q_idx, q_text,
+                        {'response_length': len(response)},
+                        duration
+                    )
+
+                except Exception as e:
+                    duration = time.time() - start_time
+                    self.db.save_session_response(
+                        session_id=session_id,
+                        question_id=q_id,
+                        phase_id=phase_id,
+                        phase_number=2,
+                        error=str(e),
+                        duration_seconds=duration
+                    )
+                    tracker.update_progress(
+                        2, q_idx, q_text,
+                        {'error': str(e)},
+                        duration, success=False
+                    )
+
+            # Build results summary
+            results_summary = {
+                'total_responses': successful,
+                'failed': len(questions_to_retry) - successful,
+                'retried': len(questions_to_retry),
+                'avg_response_time': total_time / max(successful, 1),
+                'total_time': total_time,
+                'provider': provider_type,
+                'model': model
+            }
+
+            tracker.complete_phase(2, results_summary)
+
+            # Update database phase to completed
+            self.db.update_phase(
+                session_id, 2,
+                status='completed',
+                completed_at=datetime.now().isoformat(),
+                results=results_summary
+            )
+
+            return results_summary
+
+        except CancellationError:
+            # Handle cancellation gracefully
+            self.clear_cancellation(session_id)
+            cancel_msg = f"Phase 2 retry cancelled after {successful} of {len(questions_to_retry)} questions"
+            print(f"[Session {session_id}] {cancel_msg}")
+            tracker.fail_phase(2, cancel_msg)
+            self.db.update_phase(
+                session_id, 2,
+                status='cancelled',
+                completed_at=datetime.now().isoformat(),
+                error=cancel_msg,
+                results={'cancelled': True, 'completed': successful, 'total': len(questions_to_retry)}
+            )
+            raise
+
+        except Exception as e:
+            error_msg = str(e)
+            tracker.fail_phase(2, error_msg)
+            self.db.update_phase(
+                session_id, 2,
+                status='failed',
+                completed_at=datetime.now().isoformat(),
+                error=error_msg
+            )
+            raise
+
     def _run_correct_phase(
         self,
         session_id: int,
@@ -1273,6 +1449,65 @@ Improved answer:"""
     ) -> Dict[str, Any]:
         """Re-run a phase, clearing it and downstream phases first."""
         return self.run_phase(session_id, phase_number, config, rerun=True)
+
+    def retry_phase(
+        self,
+        session_id: int,
+        phase_number: int,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Retry failed questions for a phase.
+
+        Currently only supports phase 2 (generation).
+        Re-generates responses for questions that either:
+        - Have no response at all
+        - Have a response with an error
+
+        Args:
+            session_id: Session ID
+            phase_number: Phase number (currently only 2 is supported)
+            config: Phase configuration
+
+        Returns:
+            Phase results summary including retry statistics
+        """
+        if phase_number != 2:
+            raise ValueError("Retry is currently only supported for Phase 2 (Generation)")
+
+        session = self.db.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        # Clear any existing cancellation flag for this session
+        self.clear_cancellation(session_id)
+
+        # Verify phase 2 has been run at least once
+        phase_2 = session['phases'].get(2, {})
+        if not phase_2 or phase_2.get('status') not in ('completed', 'cancelled', 'failed'):
+            raise ValueError("Phase 2 must be run at least once before retrying failed questions")
+
+        # Get tracker
+        tracker = self._get_or_create_tracker(
+            session_id,
+            session['name'],
+            session.get('total_questions', 0)
+        )
+
+        # Load phase status from database into tracker
+        for pn, phase_data in session['phases'].items():
+            tracker.phases[pn].status = PhaseStatus(phase_data['status'])
+
+        # Print pipeline before retry
+        tracker.print_pipeline()
+
+        # Execute retry
+        result = self._retry_failed_questions_phase(session_id, session, tracker, config)
+
+        # Print pipeline status after retry
+        tracker.print_pipeline()
+
+        return result
 
 
 # Singleton instance

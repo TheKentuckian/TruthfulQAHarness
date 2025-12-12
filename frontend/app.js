@@ -901,6 +901,10 @@ document.querySelectorAll('.resume-phase-btn').forEach(btn => {
     btn.addEventListener('click', () => resumePhase(parseInt(btn.dataset.phase)));
 });
 
+document.querySelectorAll('.retry-phase-btn').forEach(btn => {
+    btn.addEventListener('click', () => retryPhase(parseInt(btn.dataset.phase)));
+});
+
 // Load sessions list
 async function loadSessionsList() {
     showLoading(true, 'Loading sessions...');
@@ -1094,6 +1098,7 @@ function updatePhaseButtons() {
         const runBtn = document.querySelector(`.run-phase-btn[data-phase="${num}"]`);
         const rerunBtn = document.querySelector(`.rerun-phase-btn[data-phase="${num}"]`);
         const resumeBtn = document.querySelector(`.resume-phase-btn[data-phase="${num}"]`);
+        const retryBtn = document.querySelector(`.retry-phase-btn[data-phase="${num}"]`);
 
         if (runBtn && rerunBtn && resumeBtn) {
             const isCompleted = phaseData.status === 'completed' || phaseData.status === 'skipped';
@@ -1106,17 +1111,32 @@ function updatePhaseButtons() {
                 runBtn.style.display = 'none';
                 rerunBtn.style.display = 'inline-block';
                 resumeBtn.style.display = 'none';
+
+                // Show retry button for phase 2 if completed
+                if (retryBtn && num === 2) {
+                    retryBtn.style.display = 'inline-block';
+                }
             } else if (isCancelled) {
                 // Phase cancelled - show resume and rerun buttons
                 runBtn.style.display = 'none';
                 rerunBtn.style.display = 'inline-block';
                 resumeBtn.style.display = 'inline-block';
+
+                // Hide retry button when cancelled
+                if (retryBtn) {
+                    retryBtn.style.display = 'none';
+                }
             } else {
                 // Phase pending or failed - show run button
                 runBtn.style.display = 'inline-block';
                 runBtn.disabled = !prevCompleted;
                 rerunBtn.style.display = 'none';
                 resumeBtn.style.display = 'none';
+
+                // Hide retry button when pending/failed
+                if (retryBtn) {
+                    retryBtn.style.display = 'none';
+                }
             }
         }
     });
@@ -1361,6 +1381,59 @@ async function resumePhase(phaseNumber) {
         } else {
             console.error(`Error resuming phase ${phaseNumber}:`, error);
             alert(`Failed to resume phase ${phaseNumber}: ${error.message}`);
+        }
+    } finally {
+        showLoading(false);
+        sessionAbortController = null;
+    }
+}
+
+async function retryPhase(phaseNumber) {
+    if (!activeSession) return;
+
+    const config = getPhaseConfig(phaseNumber);
+    const phaseNames = ['', 'Gather', 'Generate', 'Correct', 'Validate'];
+
+    // Create abort controller for this phase execution
+    sessionAbortController = new AbortController();
+
+    showLoading(true, `Retrying failed questions for Phase ${phaseNumber}: ${phaseNames[phaseNumber]}...`, true);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/api/sessions/${activeSession.id}/phases/${phaseNumber}/retry`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+                signal: sessionAbortController.signal
+            }
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to retry phase');
+        }
+
+        const result = await response.json();
+        console.log(`Phase ${phaseNumber} retry result:`, result);
+
+        // Reload session to get updated state
+        await openSession(activeSession.id);
+
+        // Show results if this was the validation phase
+        if (phaseNumber === 4) {
+            showSessionResults();
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('Phase retry cancelled by user');
+            alert('Phase execution cancelled');
+            // Reload session to see current state
+            await openSession(activeSession.id);
+        } else {
+            console.error(`Error retrying phase ${phaseNumber}:`, error);
+            alert(`Failed to retry phase ${phaseNumber}: ${error.message}`);
         }
     } finally {
         showLoading(false);
