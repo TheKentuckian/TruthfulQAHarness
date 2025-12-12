@@ -1,85 +1,62 @@
 # TruthfulQA Evaluation Harness
 
-A web-based evaluation harness for assessing the truthfulness of Large Language Models (LLMs) using the TruthfulQA dataset. Built for research on self-correction techniques in LLMs.
+A simplified evaluation harness for assessing the truthfulness of Large Language Models (LLMs) using the TruthfulQA dataset.
 
 ## Overview
 
-This harness provides a simple, configurable interface to:
+This tool provides a straightforward interface to:
 - Load questions from the TruthfulQA dataset
-- Prompt configurable LLMs (starting with Claude Sonnet)
-- Evaluate answers using configurable verifiers (starting with word similarity)
-- View detailed results and statistics in a web interface
+- Generate responses using configurable LLMs (Claude, LM Studio)
+- Apply self-correction techniques (Chain of Thought, Critique, Reward/Feedback)
+- Validate answers using multiple verification methods
+- Track and analyze results through a session-based workflow
 
 ## Features
 
-### Phase 1 (Current Implementation)
+- **4-Phase Evaluation Workflow**:
+  1. **Gather**: Load questions from TruthfulQA dataset
+  2. **Generate**: Generate LLM responses
+  3. **Correct**: Apply self-correction techniques (optional)
+  4. **Validate**: Verify truthfulness of answers
 
-- **Dataset Loading**: Automatic loading and sampling from the TruthfulQA dataset via HuggingFace
-- **Configurable LLM Provider**: Extensible architecture supporting multiple LLMs
-  - Currently implemented: Claude Sonnet 4.5
-  - Easy to add: OpenAI GPT, other Claude models, etc.
-- **Configurable Verifier**: Pluggable verification system
-  - Currently implemented:
-    - Simple Text Verifier (Word Overlap - lightweight, no sklearn required)
-    - Word Similarity (TF-IDF + Cosine Similarity - requires sklearn)
-  - Framework ready for: LLM-based verifiers, semantic similarity, etc.
-- **Web Interface**: Clean, responsive UI for configuration and results visualization
-- **Batch Evaluation**: Evaluate multiple questions in a single run
-- **Detailed Metrics**: Per-question and aggregate statistics
+- **Multiple LLM Providers**:
+  - Claude (via Anthropic API)
+  - LM Studio (local models)
 
-### Phase 2 (Self-Correction Techniques)
-- **Critique-based self-correction for improving answer quality**:
-  - LLM critiques its own answers
-  - Generates revised answers based on critique
-  - Compare baseline vs. corrected performance
+- **Self-Correction Methods**:
+  - Chain of Thought prompting
+  - Critique-based self-correction
+  - Reward/Feedback-based correction
 
-- **Reward/Feedback Self-Correction**: External reward model scores answers and provides feedback
-  - LLM-based reward model with multi-criteria scoring (truthfulness, coherence, completeness, etc.)
-  - Detailed feedback and actionable suggestions
-  - Automatic self-correction based on reward scores
-  - Comparison metrics (initial vs. corrected answers)
-  - API endpoints for self-correcting evaluation
-  - See [SELF_CORRECTION.md](SELF_CORRECTION.md) for detailed documentation
+- **Verification Methods**:
+  - Simple text comparison (word overlap)
+  - Word similarity (TF-IDF + cosine similarity)
+  - LLM-based judge
 
-- **Chain of Thought Prompting**: Multiple prompting strategies that encourage step-by-step reasoning
-  - Direct, Chain of Thought, Self-Correction, Reflective, and Iterative strategies
-- **Self-Correction Pipeline**: Automatically re-prompts the LLM when initial answers are untruthful
-  - Uses CoT to help the model identify and fix its own mistakes
-  - Tracks correction history and success rates
-- **Strategy Comparison**: Compare effectiveness of different prompting approaches
-- **Comprehensive Metrics**: Track improvement from initial to corrected answers
-- **Demo Scripts**: Ready-to-use demonstrations of CoT self-correction capabilities
+- **Session Management**: Track multiple evaluation runs with persistent storage
 
-📖 **See [COT_SELF_CORRECTION.md](COT_SELF_CORRECTION.md) for detailed documentation**
-🚀 **Run the demo**: `python demo_cot_correction.py --mode correction --questions 5`
-📊 **Example output**: See [EXAMPLE_OUTPUT.md](EXAMPLE_OUTPUT.md)
-
-## Architecture
+## Repository Structure
 
 ```
 TruthfulQAHarness/
 ├── backend/
-│   ├── app.py                           # FastAPI server
+│   ├── app.py                           # FastAPI server (optional)
 │   ├── config.py                        # Configuration management
 │   ├── models/
 │   │   ├── llm_provider.py             # LLM provider abstraction
-│   │   └── verifier.py                 # Verifier abstraction
+│   │   ├── verifier.py                 # Verifier abstraction
+│   │   ├── reward_model.py             # Reward model for self-correction
+│   │   └── self_corrector.py           # Self-correction logic
 │   └── services/
 │       ├── dataset_loader.py           # TruthfulQA loader
 │       ├── evaluator.py                # Evaluation pipeline
-│       ├── prompt_strategies.py        # CoT prompt strategies
-│       └── self_correction_evaluator.py # Self-correction pipeline
-├── frontend/
-│   ├── index.html                      # Main UI
-│   ├── styles.css             # Styling
-│   └── app.js                 # Frontend logic
-├── demo_cot_correction.py             # CoT self-correction demo
-├── test_cot_correction.py             # Unit tests for CoT features
-├── requirements.txt                   # Python dependencies
-├── .env.example                       # Environment variables template
-├── README.md                          # This file
-├── COT_SELF_CORRECTION.md            # CoT feature documentation
-└── EXAMPLE_OUTPUT.md                 # Example demo outputs
+│       ├── session_service.py          # Session management
+│       ├── database.py                 # SQLite storage
+│       └── prompt_strategies.py        # Prompting strategies
+├── console.py                          # Interactive console application
+├── analysis.ipynb                      # Jupyter notebook for analysis
+├── requirements.txt                    # Python dependencies
+└── .env.example                        # Environment variables template
 ```
 
 ## Installation
@@ -87,9 +64,8 @@ TruthfulQAHarness/
 ### Prerequisites
 
 - Python 3.8 or higher
-- Anthropic API key (for Claude)
-
-**🔵 Chromebook/Crostini Users**: See [CHROMEBOOK-SETUP.md](CHROMEBOOK-SETUP.md) for a lightweight installation that skips sklearn.
+- Anthropic API key (optional, for Claude)
+- LM Studio (optional, for local models)
 
 ### Setup
 
@@ -115,230 +91,95 @@ TruthfulQAHarness/
    cp .env.example .env
    ```
 
-   Edit `.env` and add your Anthropic API key:
+   Edit `.env` and add your Anthropic API key (if using Claude):
    ```
    ANTHROPIC_API_KEY=your_api_key_here
    ```
 
 ## Usage
 
-### Starting the Server
+### Console Application (Recommended)
+
+Run the interactive console app:
+
+```bash
+python console.py
+```
+
+The console app provides a menu-driven interface to:
+- Create and manage evaluation sessions
+- Run the complete 4-phase workflow
+- View session results
+- Manage the dataset
+
+### Jupyter Notebook
+
+For data analysis and visualization:
+
+```bash
+jupyter notebook analysis.ipynb
+```
+
+### FastAPI Backend (Optional)
+
+If you need the REST API:
 
 ```bash
 python -m backend.app
 ```
 
-The server will start on `http://localhost:8000` by default.
+The API will be available at `http://localhost:8000`
 
-### Using the Web Interface
+API documentation: `http://localhost:8000/docs`
 
-1. **Open your browser** and navigate to `http://localhost:8000`
+## Quick Start Example
 
-2. **Configure the evaluation**:
-   - **LLM Provider**: Select Claude (currently the only option)
-   - **Model**: Specify Claude model (default: claude-sonnet-4-5-20250929)
-   - **Max Tokens**: Set maximum tokens for generation (default: 1024)
-   - **Temperature**: Set sampling temperature (default: 1.0)
-   - **Verifier**: Select Word Similarity (currently the only option)
-   - **Sample Size**: Number of questions to evaluate (default: 10)
-   - **Random Seed**: Optional seed for reproducibility
-
-3. **Load Sample Questions**: Click "Load Sample Questions" to fetch random questions from TruthfulQA
-
-4. **Evaluate**: Click "Evaluate Batch" to run the evaluation
-
-5. **View Results**: See detailed results including:
-   - Overall accuracy and statistics
-   - Per-question truthfulness assessment
-   - Confidence scores
-   - Similarity metrics
-   - LLM responses
-
-### API Endpoints
-
-The harness provides a comprehensive REST API for programmatic access:
-
-#### Self-Correction Endpoints (**NEW!**)
-
-- `POST /api/evaluate/self-correct/single` - Evaluate single question with self-correction
-  ```json
-  {
-    "question_index": 0,
-    "config": {
-      "llm_provider": "claude",
-      "verifier_type": "simple_text",
-      "reward_model_type": "llm_reward",
-      "enable_correction": true,
-      "score_threshold": 0.7,
-      "max_iterations": 1
-    }
-  }
-  ```
-
-- `POST /api/evaluate/self-correct/batch` - Evaluate batch with self-correction
-  ```json
-  {
-    "sample_size": 5,
-    "seed": 42,
-    "config": {
-      "llm_provider": "claude",
-      "verifier_type": "simple_text",
-      "reward_model_type": "llm_reward",
-      "enable_correction": true
-    }
-  }
-  ```
-
-#### Dataset Endpoints
-
-- `GET /api/dataset/info` - Get dataset information
-- `GET /api/dataset/sample?sample_size=10&seed=42` - Get sample questions
-- `GET /api/dataset/question/{index}` - Get specific question by index
-
-#### Evaluation Endpoints
-
-- `POST /api/evaluate/single` - Evaluate a single question
-  ```json
-  {
-    "question_index": 0,
-    "config": {
-      "llm_provider": "claude",
-      "llm_config": {"model": "claude-sonnet-4-5-20250929"},
-      "verifier_type": "word_similarity",
-      "max_tokens": 1024,
-      "temperature": 1.0
-    }
-  }
-  ```
-
-- `POST /api/evaluate/batch` - Evaluate multiple questions
-  ```json
-  {
-    "sample_size": 10,
-    "seed": 42,
-    "config": {
-      "llm_provider": "claude",
-      "verifier_type": "word_similarity"
-    }
-  }
-  ```
-
-#### Configuration Endpoints
-
-- `GET /api/providers` - List available LLM providers
-- `GET /api/verifiers` - List available verifiers
-- `GET /api/reward-models` - List available reward models
-
-## Quick Start: Self-Correction Demo
-
-To see the reward/feedback self-correction technique in action:
-
-```bash
-python demo_self_correction.py
-```
-
-This demonstration shows:
-1. Initial answer generation (baseline)
-2. Reward model scoring on multiple criteria
-3. Detailed feedback and suggestions
-4. Self-corrected answer generation
-5. Comparison of improvements
-
-For comprehensive documentation on self-correction, see [SELF_CORRECTION.md](SELF_CORRECTION.md).
-
-## How It Works
-
-### 1. Dataset Loading
-
-The harness uses the HuggingFace `datasets` library to load the TruthfulQA dataset. Questions include:
-- The question text
-- List of correct (truthful) answers
-- List of incorrect (untruthful) answers
-- Category information
-
-### 2. LLM Prompting
-
-Questions are formatted into prompts and sent to the configured LLM. The harness uses a simple prompt format:
-```
-Q: {question}
-A:
-```
-
-### 3. Answer Verification
-
-The Word Similarity verifier:
-1. Preprocesses all text (lowercase, remove extra whitespace)
-2. Vectorizes using TF-IDF (Term Frequency-Inverse Document Frequency)
-3. Computes cosine similarity between LLM answer and reference answers
-4. Determines truthfulness based on whether similarity to correct answers exceeds similarity to incorrect answers
-5. Provides confidence score based on the difference in similarities
-
-### 4. Results Presentation
-
-Results include:
-- **Binary truthfulness classification**: Is the answer truthful?
-- **Confidence score**: How confident is the verifier? (0-1)
-- **Detailed metrics**: Similarity scores, reasoning
-- **Aggregate statistics**: Overall accuracy, average confidence
-
-## Extending the Harness
-
-### Adding a New LLM Provider
-
-1. Create a new class in `backend/models/llm_provider.py`:
-   ```python
-   class MyLLMProvider(LLMProvider):
-       def generate(self, prompt, max_tokens=None, temperature=None, **kwargs):
-           # Implementation
-           pass
-
-       def get_provider_name(self):
-           return "My LLM"
+1. Start the console app:
+   ```bash
+   python console.py
    ```
 
-2. Register it in the factory:
-   ```python
-   LLMProviderFactory._providers["myllm"] = MyLLMProvider
-   ```
+2. Select "Run Session Workflow"
 
-### Adding a New Verifier
+3. Follow the prompts to:
+   - Create a new session or select existing
+   - Choose number of questions to evaluate
+   - Select LLM provider (Claude or LM Studio)
+   - Choose self-correction method (optional)
+   - Select verification method
 
-1. Create a new class in `backend/models/verifier.py`:
-   ```python
-   class MyVerifier(Verifier):
-       def verify(self, llm_answer, correct_answers, incorrect_answers, **kwargs):
-           # Implementation
-           return {
-               "is_truthful": True/False,
-               "confidence": 0.0-1.0,
-               "reasoning": "...",
-               "metrics": {}
-           }
-
-       def get_verifier_name(self):
-           return "My Verifier"
-   ```
-
-2. Register it in the factory:
-   ```python
-   VerifierFactory._verifiers["myverifier"] = MyVerifier
-   ```
+4. View results at the end of the workflow
 
 ## Configuration Options
 
 ### Environment Variables
 
-- `ANTHROPIC_API_KEY`: Your Anthropic API key (required)
+- `ANTHROPIC_API_KEY`: Your Anthropic API key (required for Claude)
 - `HOST`: Server host (default: 0.0.0.0)
 - `PORT`: Server port (default: 8000)
 - `DEFAULT_MODEL`: Default Claude model
 - `DEFAULT_MAX_TOKENS`: Default max tokens (default: 1024)
 - `DEFAULT_TEMPERATURE`: Default temperature (default: 1.0)
-- `TRUTHFULQA_SAMPLE_SIZE`: Default sample size (default: 10)
 
-## Research Notes
+### LLM Providers
 
-### About TruthfulQA
+**Claude**:
+- Requires `ANTHROPIC_API_KEY` in `.env`
+- Default model: `claude-sonnet-4-5-20250929`
+
+**LM Studio**:
+- No API key required
+- Runs models locally
+- Default URL: `http://localhost:1234/v1`
+- Supports Qwen thinking mode
+
+### Verification Methods
+
+1. **Simple Text**: Fast word overlap comparison
+2. **Word Similarity**: TF-IDF vectorization with cosine similarity
+3. **LLM Judge**: Uses an LLM to judge truthfulness (most accurate)
+
+## About TruthfulQA
 
 TruthfulQA is a benchmark to measure whether a language model is truthful in generating answers to questions. The benchmark comprises 817 questions that span 38 categories, including health, law, finance, and politics.
 
@@ -352,70 +193,59 @@ TruthfulQA is a benchmark to measure whether a language model is truthful in gen
 }
 ```
 
-### Word Similarity Verifier
+## Data Storage
 
-The word similarity approach is a simple baseline that:
-- **Advantages**: Fast, interpretable, no additional API calls
-- **Limitations**: Surface-level comparison, doesn't understand semantics
-- **Best for**: Initial exploration and baseline performance
+Session data is stored in a SQLite database (`truthfulqa_harness.db`) which includes:
+- Session metadata
+- Questions sampled for each session
+- Generated responses (initial and corrected)
+- Validation results
+- Phase configurations and results
 
-### Self-Correction Research
+## Extending the Harness
 
-**Implemented - Reward/Feedback Technique**
+### Adding a New LLM Provider
 
-The harness now includes a complete implementation of reward/feedback self-correction:
+Create a class in `backend/models/llm_provider.py`:
 
-- **Reward Model**: LLM-based scoring on 5 criteria (truthfulness, coherence, completeness, relevance, safety)
-- **Feedback Loop**: Detailed feedback and suggestions provided to the LLM
-- **Automatic Correction**: LLM self-corrects based on reward scores and feedback
-- **Metrics**: Comprehensive comparison of initial vs. corrected answers
-- **Configurable**: Adjustable score thresholds, iteration counts, and criteria weights
+```python
+class MyLLMProvider(LLMProvider):
+    def generate(self, prompt, max_tokens=None, temperature=None, **kwargs):
+        # Implementation
+        pass
 
-See [SELF_CORRECTION.md](SELF_CORRECTION.md) for complete documentation.
-
-The harness now includes comprehensive chain of thought self-correction capabilities:
-
-**✅ Implemented (Phase 2)**:
-1. **Chain-of-Thought Prompting**: Multiple strategies for step-by-step reasoning
-2. **Conditional Re-prompting**: Automatic correction when answers are untruthful
-3. **Iterative Refinement**: Support for multiple correction attempts
-4. **Strategy Comparison**: Compare effectiveness of different approaches
-5. **Comprehensive Metrics**: Track improvement and correction success rates
-
-
-
-## Troubleshooting
-
-For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-
-### Common Issues - Quick Fixes
-
-**ImportError: cannot import name 'HfFolder'**
-```bash
-pip install --upgrade datasets huggingface-hub
+    def get_provider_name(self):
+        return "My LLM"
 ```
 
-**Client.__init__() got unexpected keyword 'proxies'**
-```bash
-pip install --upgrade anthropic
+Register it in the factory:
+```python
+LLMProviderFactory._providers["myllm"] = MyLLMProvider
 ```
 
-**scikit-learn won't compile (Chromebook)**
-```bash
-./setup-chromebook.sh  # Use Simple Text Verifier instead
+### Adding a New Verifier
+
+Create a class in `backend/models/verifier.py`:
+
+```python
+class MyVerifier(Verifier):
+    def verify(self, llm_answer, correct_answers, incorrect_answers, **kwargs):
+        # Implementation
+        return {
+            "is_truthful": True/False,
+            "confidence": 0.0-1.0,
+            "reasoning": "...",
+            "metrics": {}
+        }
+
+    def get_verifier_name(self):
+        return "My Verifier"
 ```
 
-**Server won't start**
-- Check port 8000 isn't in use
-- Verify virtual environment is activated
-- Check `.env` file exists with valid API key
-
-**Low accuracy / All results untruthful**
-- Try different verifier (Simple Text vs Word Similarity)
-- Check dataset loaded correctly
-- Verify API key is working
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive solutions to all common issues.
+Register it in the factory:
+```python
+VerifierFactory._verifiers["myverifier"] = MyVerifier
+```
 
 ## License
 

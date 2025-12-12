@@ -1,8 +1,6 @@
 """FastAPI application for TruthfulQA Harness."""
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import os
@@ -200,8 +198,12 @@ class FullSessionRequest(BaseModel):
 # API Endpoints
 @app.get("/")
 async def root():
-    """Root endpoint - serve frontend."""
-    return FileResponse("frontend/index.html")
+    """Root endpoint - health check."""
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "message": "TruthfulQA Evaluation Harness API"
+    }
 
 
 @app.get("/api/health")
@@ -1058,10 +1060,6 @@ async def get_session_summary(session_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Mount static files (frontend)
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
 if __name__ == "__main__":
