@@ -1,14 +1,13 @@
 # TruthfulQA Evaluation Harness
 
-A simplified evaluation harness for assessing the truthfulness of Large Language Models (LLMs) using the TruthfulQA dataset.
+A streamlined evaluation harness for assessing LLM truthfulness using the TruthfulQA dataset.
 
 ## Overview
 
-This tool provides a straightforward interface to:
 - Load questions from the TruthfulQA dataset
-- Generate responses using configurable LLMs (Claude, LM Studio)
+- Generate responses using Claude or local LLMs (via LM Studio)
 - Apply self-correction techniques (Chain of Thought, Critique, Reward/Feedback)
-- Validate answers using multiple verification methods
+- Validate answers with multiple verification methods
 - Track and analyze results through a session-based workflow
 
 ## Features
@@ -40,219 +39,83 @@ This tool provides a straightforward interface to:
 ```
 TruthfulQAHarness/
 ├── backend/
-│   ├── app.py                           # FastAPI server (optional)
-│   ├── config.py                        # Configuration management
-│   ├── models/
-│   │   ├── llm_provider.py             # LLM provider abstraction
-│   │   ├── verifier.py                 # Verifier abstraction
-│   │   ├── reward_model.py             # Reward model for self-correction
-│   │   └── self_corrector.py           # Self-correction logic
-│   └── services/
-│       ├── dataset_loader.py           # TruthfulQA loader
-│       ├── evaluator.py                # Evaluation pipeline
-│       ├── session_service.py          # Session management
-│       ├── database.py                 # SQLite storage
-│       └── prompt_strategies.py        # Prompting strategies
-├── console.py                          # Interactive console application
-├── analysis.ipynb                      # Jupyter notebook for analysis
-├── requirements.txt                    # Python dependencies
-└── .env.example                        # Environment variables template
+│   ├── config.py                        # Configuration
+│   ├── models/                          # LLM providers, verifiers, reward models
+│   └── services/                        # Dataset, evaluation, session management
+├── console.py                           # Interactive console application
+├── analysis.ipynb                       # Jupyter notebook
+├── requirements.txt                     # Dependencies
+└── .env.example                         # Environment template
 ```
 
 ## Installation
 
-### Prerequisites
+**Prerequisites:** Python 3.8+, Anthropic API key (for Claude) or LM Studio (for local models)
 
-- Python 3.8 or higher
-- Anthropic API key (optional, for Claude)
-- LM Studio (optional, for local models)
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd TruthfulQAHarness
-   ```
-
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and add your Anthropic API key (if using Claude):
-   ```
-   ANTHROPIC_API_KEY=your_api_key_here
-   ```
+```bash
+git clone <repository-url>
+cd TruthfulQAHarness
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env and add: ANTHROPIC_API_KEY=your_key_here
+```
 
 ## Usage
 
-### Console Application (Recommended)
+**Console App:**
+```bash
+python console.py
+```
 
-Run the interactive console app:
+**Jupyter Notebook:**
+```bash
+jupyter notebook analysis.ipynb
+```
+
+## Quick Start
 
 ```bash
 python console.py
 ```
 
-The console app provides a menu-driven interface to:
-- Create and manage evaluation sessions
-- Run the complete 4-phase workflow
-- View session results
-- Manage the dataset
+1. Select "Run Session Workflow"
+2. Create a new session or select existing
+3. Configure: questions, LLM provider, self-correction method, verifier
+4. View results
 
-### Jupyter Notebook
+## Configuration
 
-For data analysis and visualization:
+**Environment Variables** (`.env`):
+- `ANTHROPIC_API_KEY` - Required for Claude
+- `DEFAULT_MODEL` - Default: `claude-sonnet-4-5-20250929`
+- `DEFAULT_MAX_TOKENS` - Default: 1024
+- `DEFAULT_TEMPERATURE` - Default: 1.0
 
-```bash
-jupyter notebook analysis.ipynb
-```
+**LLM Providers:**
+- **Claude**: Requires API key in `.env`
+- **LM Studio**: No API key needed, runs locally at `http://localhost:1234/v1`
 
-### FastAPI Backend (Optional)
-
-If you need the REST API:
-
-```bash
-python -m backend.app
-```
-
-The API will be available at `http://localhost:8000`
-
-API documentation: `http://localhost:8000/docs`
-
-## Quick Start Example
-
-1. Start the console app:
-   ```bash
-   python console.py
-   ```
-
-2. Select "Run Session Workflow"
-
-3. Follow the prompts to:
-   - Create a new session or select existing
-   - Choose number of questions to evaluate
-   - Select LLM provider (Claude or LM Studio)
-   - Choose self-correction method (optional)
-   - Select verification method
-
-4. View results at the end of the workflow
-
-## Configuration Options
-
-### Environment Variables
-
-- `ANTHROPIC_API_KEY`: Your Anthropic API key (required for Claude)
-- `HOST`: Server host (default: 0.0.0.0)
-- `PORT`: Server port (default: 8000)
-- `DEFAULT_MODEL`: Default Claude model
-- `DEFAULT_MAX_TOKENS`: Default max tokens (default: 1024)
-- `DEFAULT_TEMPERATURE`: Default temperature (default: 1.0)
-
-### LLM Providers
-
-**Claude**:
-- Requires `ANTHROPIC_API_KEY` in `.env`
-- Default model: `claude-sonnet-4-5-20250929`
-
-**LM Studio**:
-- No API key required
-- Runs models locally
-- Default URL: `http://localhost:1234/v1`
-- Supports Qwen thinking mode
-
-### Verification Methods
-
-1. **Simple Text**: Fast word overlap comparison
-2. **Word Similarity**: TF-IDF vectorization with cosine similarity
-3. **LLM Judge**: Uses an LLM to judge truthfulness (most accurate)
+**Verification Methods:**
+- **Simple Text**: Word overlap
+- **Word Similarity**: TF-IDF + cosine similarity
+- **LLM Judge**: Most accurate, uses LLM to judge truthfulness
 
 ## About TruthfulQA
 
-TruthfulQA is a benchmark to measure whether a language model is truthful in generating answers to questions. The benchmark comprises 817 questions that span 38 categories, including health, law, finance, and politics.
+817 questions across 38 categories designed to test whether LLMs generate truthful answers. Questions target common human falsehoods and misconceptions.
 
-**Citation**:
-```
-@article{lin2021truthfulqa,
-  title={TruthfulQA: Measuring How Models Mimic Human Falsehoods},
-  author={Lin, Stephanie and Hilton, Jacob and Evans, Owain},
-  journal={arXiv preprint arXiv:2109.07958},
-  year={2021}
-}
-```
+**Citation:** Lin et al., "TruthfulQA: Measuring How Models Mimic Human Falsehoods", arXiv:2109.07958, 2021
 
-## Data Storage
+**Data Storage:** SQLite database (`truthfulqa_harness.db`) stores session metadata, questions, responses, and validation results.
 
-Session data is stored in a SQLite database (`truthfulqa_harness.db`) which includes:
-- Session metadata
-- Questions sampled for each session
-- Generated responses (initial and corrected)
-- Validation results
-- Phase configurations and results
+## Extending
 
-## Extending the Harness
+**Add LLM Provider:** Create a class in `backend/models/llm_provider.py` inheriting from `LLMProvider` and register it in the factory.
 
-### Adding a New LLM Provider
-
-Create a class in `backend/models/llm_provider.py`:
-
-```python
-class MyLLMProvider(LLMProvider):
-    def generate(self, prompt, max_tokens=None, temperature=None, **kwargs):
-        # Implementation
-        pass
-
-    def get_provider_name(self):
-        return "My LLM"
-```
-
-Register it in the factory:
-```python
-LLMProviderFactory._providers["myllm"] = MyLLMProvider
-```
-
-### Adding a New Verifier
-
-Create a class in `backend/models/verifier.py`:
-
-```python
-class MyVerifier(Verifier):
-    def verify(self, llm_answer, correct_answers, incorrect_answers, **kwargs):
-        # Implementation
-        return {
-            "is_truthful": True/False,
-            "confidence": 0.0-1.0,
-            "reasoning": "...",
-            "metrics": {}
-        }
-
-    def get_verifier_name(self):
-        return "My Verifier"
-```
-
-Register it in the factory:
-```python
-VerifierFactory._verifiers["myverifier"] = MyVerifier
-```
+**Add Verifier:** Create a class in `backend/models/verifier.py` inheriting from `Verifier` and register it in the factory.
 
 ## License
 
-This project is for academic research purposes. Please cite appropriately if used in publications.
-
-## Acknowledgments
-
-- TruthfulQA dataset by Lin et al.
-- Anthropic for the Claude API
-- HuggingFace for the datasets library
+Academic research purposes. Please cite appropriately if used in publications.

@@ -1,30 +1,20 @@
 """Configuration management for the TruthfulQA Harness."""
-import os
-from typing import Optional
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # API Keys
     anthropic_api_key: str = ""
 
-    # LM Studio Configuration
     lm_studio_base_url: str = "http://localhost:1234/v1"
     lm_studio_model: str = "local-model"
     lm_studio_api_key: str = "not-needed"
 
-    # Server Configuration
-    host: str = "0.0.0.0"
-    port: int = 8000
-
-    # LLM Configuration
     default_model: str = "claude-sonnet-4-5-20250929"
     default_max_tokens: int = 1024
     default_temperature: float = 1.0
 
-    # Dataset Configuration
     truthfulqa_sample_size: int = 10
 
     class Config:
@@ -33,5 +23,4 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 
-# Global settings instance
 settings = Settings()
