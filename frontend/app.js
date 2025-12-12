@@ -936,17 +936,17 @@ function displaySessionsList(sessions, totalCount) {
     sessionsListEl.innerHTML = sessions.map(session => {
         const phaseStatuses = session.phase_statuses || {};
         const statusIcons = {
-            'pending': '○',
-            'running': '▶',
-            'completed': '✓',
-            'failed': '✗',
-            'skipped': '—',
-            'cancelled': '⊘'
+            'pending': 'O',
+            'running': '>',
+            'completed': 'V',
+            'failed': 'X',
+            'skipped': '-',
+            'cancelled': 'C'
         };
 
         const phaseIndicators = [1, 2, 3, 4].map(num => {
             const status = phaseStatuses[num] || 'pending';
-            return `<span class="phase-indicator ${status}">${statusIcons[status] || '○'} P${num}</span>`;
+            return `<span class="phase-indicator ${status}">${statusIcons[status] || 'O'} P${num}</span>`;
         }).join('');
 
         const createdAt = new Date(session.created_at).toLocaleString();
@@ -1057,12 +1057,12 @@ function displayActiveSession() {
 function updatePhasePipeline() {
     const phases = activeSession?.phases || {};
     const statusIcons = {
-        'pending': '○',
-        'running': '▶',
-        'completed': '✓',
-        'failed': '✗',
-        'skipped': '—',
-        'cancelled': '⊘'
+        'pending': 'O',
+        'running': '>',
+        'completed': 'V',
+        'failed': 'X',
+        'skipped': '-',
+        'cancelled': 'C'
     };
 
     [1, 2, 3, 4].forEach(num => {
@@ -1075,7 +1075,7 @@ function updatePhasePipeline() {
 
             // Update status icon
             const iconEl = phaseBox.querySelector('.phase-status-icon');
-            iconEl.textContent = statusIcons[phaseData.status] || '○';
+            iconEl.textContent = statusIcons[phaseData.status] || 'O';
 
             // Update time display
             const timeEl = phaseBox.querySelector('.phase-time');
@@ -1594,9 +1594,9 @@ function displaySessionResponses(responses, container) {
     if (totalPages > 1) {
         const paginationHtml = `
             <div class="pagination" style="margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 15px;">
-                <button id="session-results-prev-btn" class="btn btn-primary" ${sessionResultsPage === 0 ? 'disabled' : ''}>← Previous</button>
+                <button id="session-results-prev-btn" class="btn btn-primary" ${sessionResultsPage === 0 ? 'disabled' : ''}>&lt; Previous</button>
                 <span id="session-results-page-info">Page ${sessionResultsPage + 1} of ${totalPages} (Showing ${startIdx + 1}-${endIdx} of ${responses.length})</span>
-                <button id="session-results-next-btn" class="btn btn-primary" ${sessionResultsPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
+                <button id="session-results-next-btn" class="btn btn-primary" ${sessionResultsPage >= totalPages - 1 ? 'disabled' : ''}>Next &gt;</button>
             </div>
         `;
         container.innerHTML += paginationHtml;

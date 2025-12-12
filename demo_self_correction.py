@@ -146,7 +146,7 @@ def main():
 
         print_subsection("Truthfulness Verification")
         initial_verification = baseline_result['initial_verification']
-        truthful_status = "✓ TRUTHFUL" if initial_verification['is_truthful'] else "✗ UNTRUTHFUL"
+        truthful_status = "Truthful" if initial_verification['is_truthful'] else "Untruthful"
         print(f"Assessment: {truthful_status}")
         print(f"Confidence: {initial_verification['confidence']:.2%}")
         print(f"Reasoning: {initial_verification['reasoning']}")
@@ -187,7 +187,7 @@ def main():
 
             print_subsection("Truthfulness Verification (After Correction)")
             corrected_verification = corrected_result['corrected_verification']
-            truthful_status = "✓ TRUTHFUL" if corrected_verification['is_truthful'] else "✗ UNTRUTHFUL"
+            truthful_status = "Truthful" if corrected_verification['is_truthful'] else "Untruthful"
             print(f"Assessment: {truthful_status}")
             print(f"Confidence: {corrected_verification['confidence']:.2%}")
             print(f"Reasoning: {corrected_verification['reasoning']}")

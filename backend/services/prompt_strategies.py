@@ -145,7 +145,7 @@ Previous attempts:
         for i, entry in enumerate(history, 1):
             prompt += f"\nAttempt {i}: {entry['answer']}"
             if 'was_truthful' in entry:
-                truthful_status = "✓ Verified as truthful" if entry['was_truthful'] else "✗ Not truthful"
+                truthful_status = "Verified as truthful" if entry['was_truthful'] else "Not truthful"
                 prompt += f" ({truthful_status})"
 
         prompt += """

@@ -101,13 +101,13 @@ def test_prompt_strategies():
     direct_prompt = direct.create_prompt(question)
     assert "Q:" in direct_prompt, "Direct prompt should contain 'Q:'"
     assert "A:" in direct_prompt, "Direct prompt should contain 'A:'"
-    print(f"✓ Direct Strategy: {direct.get_strategy_name()}")
+    print(f"[OK] Direct Strategy: {direct.get_strategy_name()}")
 
     # Test CoT Strategy
     cot = ChainOfThoughtStrategy()
     cot_prompt = cot.create_prompt(question)
     assert "step by step" in cot_prompt.lower(), "CoT prompt should mention step by step"
-    print(f"✓ Chain of Thought Strategy: {cot.get_strategy_name()}")
+    print(f"[OK] Chain of Thought Strategy: {cot.get_strategy_name()}")
 
     # Test Self-Correction Strategy
     correction = SelfCorrectionStrategy()
@@ -115,20 +115,20 @@ def test_prompt_strategies():
     correction_prompt = correction.create_prompt(question, context)
     assert "previous answer" in correction_prompt.lower(), "Should reference previous answer"
     assert "London" in correction_prompt, "Should include the previous answer"
-    print(f"✓ Self-Correction Strategy: {correction.get_strategy_name()}")
+    print(f"[OK] Self-Correction Strategy: {correction.get_strategy_name()}")
 
     # Test Reflective Strategy
     reflective = ReflectivePromptStrategy()
     reflective_prompt = reflective.create_prompt(question)
     assert "verify" in reflective_prompt.lower() or "verification" in reflective_prompt.lower()
-    print(f"✓ Reflective Strategy: {reflective.get_strategy_name()}")
+    print(f"[OK] Reflective Strategy: {reflective.get_strategy_name()}")
 
     # Test Factory
     strategies = PromptStrategyFactory.get_available_strategies()
     assert len(strategies) > 0, "Factory should return available strategies"
-    print(f"✓ Strategy Factory: {len(strategies)} strategies available")
+    print(f"[OK] Strategy Factory: {len(strategies)} strategies available")
 
-    print("\nAll prompt strategy tests passed! ✓")
+    print("\nAll prompt strategy tests passed! [OK]")
     return True
 
 
@@ -177,15 +177,15 @@ def test_self_correction_evaluator():
     assert "final_answer" in result, "Should have final answer"
     assert "correction_applied" in result, "Should track if correction was applied"
     assert "correction_history" in result, "Should have correction history"
-    print("✓ Result structure is correct")
+    print("[OK] Result structure is correct")
 
     # Verify correction was applied (since initial was wrong)
     assert result["correction_applied"] == True, "Correction should be applied when initial is wrong"
-    print("✓ Correction was applied for wrong answer")
+    print("[OK] Correction was applied for wrong answer")
 
     # Verify correction history
     assert len(result["correction_history"]) == 2, "Should have 2 attempts (initial + 1 correction)"
-    print(f"✓ Correction history has {len(result['correction_history'])} attempts")
+    print(f"[OK] Correction history has {len(result['correction_history'])} attempts")
 
     # Verify improvement tracking
     initial_truthful = result["initial_verification"]["is_truthful"]
@@ -193,9 +193,9 @@ def test_self_correction_evaluator():
     assert initial_truthful == False, "Initial should be wrong (per mock)"
     assert final_truthful == True, "Final should be correct (per mock)"
     assert result["correction_successful"] == True, "Should be marked as successful correction"
-    print("✓ Correction successfully improved the answer")
+    print("[OK] Correction successfully improved the answer")
 
-    print("\nAll self-correction evaluator tests passed! ✓")
+    print("\nAll self-correction evaluator tests passed! [OK]")
     return True
 
 
@@ -255,7 +255,7 @@ def test_batch_evaluation():
     assert "results" in results, "Should have results"
     assert "summary" in results, "Should have summary"
     assert len(results["results"]) == 3, "Should have 3 results"
-    print("✓ Batch results structure is correct")
+    print("[OK] Batch results structure is correct")
 
     # Verify summary metrics
     summary = results["summary"]
@@ -270,11 +270,11 @@ def test_batch_evaluation():
 
     for metric in required_metrics:
         assert metric in summary, f"Summary should include {metric}"
-    print(f"✓ Summary includes all {len(required_metrics)} required metrics")
+    print(f"[OK] Summary includes all {len(required_metrics)} required metrics")
 
     # Verify improvement tracking
     assert summary["total_questions"] == 3, "Should have 3 questions"
-    print(f"✓ Processed {summary['total_questions']} questions")
+    print(f"[OK] Processed {summary['total_questions']} questions")
 
     # With our mock pattern [False, True, True, False]:
     # Q1: initial=False (idx 0), correction=True (idx 1) -> correction successful
@@ -282,13 +282,13 @@ def test_batch_evaluation():
     # Q3: initial=False (idx 3), correction=True (idx 4... wraps to 0) -> correction successful
     # So we expect 2 corrections attempted and likely 2 successful
 
-    print(f"✓ Initial accuracy: {summary['initial_accuracy']:.1%}")
-    print(f"✓ Final accuracy: {summary['final_accuracy']:.1%}")
-    print(f"✓ Improvement: {summary['improvement']:+.1%}")
-    print(f"✓ Corrections attempted: {summary['corrections_attempted']}")
-    print(f"✓ Corrections successful: {summary['corrections_successful']}")
+    print(f"[OK] Initial accuracy: {summary['initial_accuracy']:.1%}")
+    print(f"[OK] Final accuracy: {summary['final_accuracy']:.1%}")
+    print(f"[OK] Improvement: {summary['improvement']:+.1%}")
+    print(f"[OK] Corrections attempted: {summary['corrections_attempted']}")
+    print(f"[OK] Corrections successful: {summary['corrections_successful']}")
 
-    print("\nAll batch evaluation tests passed! ✓")
+    print("\nAll batch evaluation tests passed! [OK]")
     return True
 
 
@@ -332,20 +332,20 @@ def test_strategy_comparison():
     # Verify structure
     assert "strategy_results" in results, "Should have strategy results"
     assert "comparison_summary" in results, "Should have comparison summary"
-    print("✓ Comparison results structure is correct")
+    print("[OK] Comparison results structure is correct")
 
     # Verify each strategy was tested
     assert "direct" in results["strategy_results"], "Should have direct results"
     assert "chain_of_thought" in results["strategy_results"], "Should have CoT results"
-    print("✓ Both strategies were tested")
+    print("[OK] Both strategies were tested")
 
     # Verify metrics
     for strategy, data in results["strategy_results"].items():
         assert "accuracy" in data, f"{strategy} should have accuracy"
         assert "results" in data, f"{strategy} should have results"
-        print(f"✓ {strategy}: {data['accuracy']:.1%} accuracy")
+        print(f"[OK] {strategy}: {data['accuracy']:.1%} accuracy")
 
-    print("\nAll strategy comparison tests passed! ✓")
+    print("\nAll strategy comparison tests passed! [OK]")
     return True
 
 
@@ -366,7 +366,7 @@ def main():
 
         if all_passed:
             print("\n" + "=" * 80)
-            print("ALL TESTS PASSED! ✓")
+            print("ALL TESTS PASSED! [OK]")
             print("=" * 80)
             print("\nThe Chain of Thought Self-Correction implementation is working correctly.")
             print("\nTo run a live demo with actual LLM API calls:")
@@ -376,7 +376,7 @@ def main():
             return 0
         else:
             print("\n" + "=" * 80)
-            print("SOME TESTS FAILED ✗")
+            print("SOME TESTS FAILED [FAILED]")
             print("=" * 80)
             return 1
 

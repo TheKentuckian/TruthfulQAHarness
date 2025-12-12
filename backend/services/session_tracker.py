@@ -292,11 +292,11 @@ class SessionConsoleLogger:
 
     # Status symbols
     SYMBOLS = {
-        'pending': '○',
-        'running': '▶',
-        'completed': '✓',
-        'failed': '✗',
-        'skipped': '—',
+        'pending': 'O',
+        'running': '>',
+        'completed': 'V',
+        'failed': 'X',
+        'skipped': '-',
     }
 
     def __init__(self, use_colors: bool = True):
@@ -353,23 +353,23 @@ class SessionConsoleLogger:
         names = ["GATHER", "GENERATE", "CORRECT", "VALIDATE"]
 
         # Top border
-        print(" ┌" + "┬".join(["──────────"] * 4) + "┐")
+        print(" +" + "+".join(["----------"] * 4) + "+")
 
         # Phase names
-        name_row = " │"
+        name_row = " |"
         for name in names:
-            name_row += f" {name:^8} │"
+            name_row += f" {name:^8} |"
         print(name_row)
 
         # Status symbols
-        status_row = " │"
+        status_row = " |"
         for phase in phases:
             symbol = self._symbol(phase.status.value)
-            status_row += f"    {symbol}     │"
+            status_row += f"    {symbol}     |"
         print(status_row)
 
         # Timing/status info
-        info_row = " │"
+        info_row = " |"
         for phase in phases:
             if phase.status == PhaseStatus.COMPLETED:
                 info = TimeEstimator.format_time(phase.elapsed_seconds)
@@ -381,11 +381,11 @@ class SessionConsoleLogger:
                 info = "skipped"
             else:
                 info = "pending"
-            info_row += f" {info:^8} │"
+            info_row += f" {info:^8} |"
         print(info_row)
 
         # Bottom border
-        print(" └" + "┴".join(["──────────"] * 4) + "┘")
+        print(" +" + "+".join(["----------"] * 4) + "+")
         print()
 
     def print_phase_start(self, phase: PhaseProgress, config: Dict[str, Any]):
@@ -454,7 +454,7 @@ class SessionConsoleLogger:
         q_display = question[:max_q_len] + "..." if len(question) > max_q_len else question
 
         if skipped:
-            symbol = self._color("○", "yellow")
+            symbol = self._color("O", "yellow")
             status_info = self._color("Skipped", "yellow")
             reason = result.get('skip_reason', 'already sufficient')
             print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str}) {status_info} - {reason}")
@@ -464,30 +464,30 @@ class SessionConsoleLogger:
                 is_truthful = result.get('is_truthful', False)
                 confidence = result.get('confidence', 0)
                 if is_truthful:
-                    symbol = self._color("✓", "green")
-                    status = self._color("TRUTHFUL", "green")
+                    symbol = self._color("V", "green")
+                    status = self._color("Truthful", "green")
                 else:
-                    symbol = self._color("✗", "red")
-                    status = self._color("UNTRUTHFUL", "red")
+                    symbol = self._color("X", "red")
+                    status = self._color("Untruthful", "red")
                 print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str}) {status} (confidence: {confidence:.2f})")
 
             elif phase.phase_type == PhaseType.CORRECT:
                 before_conf = result.get('before_confidence', 0)
                 after_conf = result.get('after_confidence', 0)
                 improvement = after_conf - before_conf
-                symbol = self._color("✓", "green")
+                symbol = self._color("V", "green")
                 if improvement > 0:
                     imp_str = self._color(f"+{improvement:.2f}", "green")
                 else:
                     imp_str = f"{improvement:.2f}"
-                print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str}) confidence: {before_conf:.2f} → {after_conf:.2f} ({imp_str})")
+                print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str}) confidence: {before_conf:.2f} -> {after_conf:.2f} ({imp_str})")
 
             elif phase.phase_type == PhaseType.GENERATE:
-                symbol = self._color("✓", "green")
+                symbol = self._color("V", "green")
                 print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str}) \"{q_display}\"")
 
             else:
-                symbol = self._color("✓", "green")
+                symbol = self._color("V", "green")
                 print(f" [{timestamp}] {symbol} Q{item_idx:<3} ({duration_str})")
 
     def print_phase_summary(self, phase: PhaseProgress):
@@ -496,7 +496,7 @@ class SessionConsoleLogger:
 
         print()
         elapsed = TimeEstimator.format_time(phase.elapsed_seconds)
-        status_symbol = self._color("✓", "green")
+        status_symbol = self._color("V", "green")
 
         phase_names = {
             PhaseType.GATHER: "Gather",
@@ -549,7 +549,7 @@ class SessionConsoleLogger:
         self._clear_progress_line()
 
         print()
-        symbol = self._color("✗", "red")
+        symbol = self._color("X", "red")
         print(f" {symbol} Phase {phase.phase_number} Failed")
         print(f"   Error: {error}")
         print()
@@ -559,7 +559,7 @@ class SessionConsoleLogger:
         self._clear_progress_line()
 
         print()
-        symbol = self._color("—", "yellow")
+        symbol = self._color("-", "yellow")
         phase_names = {
             PhaseType.GATHER: "Gather",
             PhaseType.GENERATE: "Generate",
@@ -597,15 +597,15 @@ class SessionConsoleLogger:
         if validate_phase.status == PhaseStatus.COMPLETED:
             summary = validate_phase.results_summary
             print(" FINAL RESULTS")
-            print(" ┌" + "─" * 47 + "┐")
+            print(" +" + "-" * 47 + "+")
 
             accuracy = summary.get('accuracy', 0)
             truthful = summary.get('truthful_count', 0)
             total = summary.get('total', 0)
             avg_conf = summary.get('avg_confidence', 0)
 
-            print(f" │  Accuracy:        {accuracy:5.1f}% ({truthful}/{total} truthful){' ' * 10}│")
-            print(f" │  Avg Confidence:  {avg_conf:.2f}{' ' * 27}│")
+            print(f" |  Accuracy:        {accuracy:5.1f}% ({truthful}/{total} truthful){' ' * 10}|")
+            print(f" |  Avg Confidence:  {avg_conf:.2f}{' ' * 27}|")
 
             # Include correction info if phase 3 was run
             correct_phase = session.phases[3]
@@ -613,10 +613,10 @@ class SessionConsoleLogger:
                 corr_summary = correct_phase.results_summary
                 corr_rate = corr_summary.get('corrections_applied', 0) / max(corr_summary.get('total', 1), 1) * 100
                 avg_imp = corr_summary.get('avg_improvement', 0)
-                print(f" │  Correction Rate: {corr_rate:5.1f}%{' ' * 26}│")
-                print(f" │  Avg Improvement: +{avg_imp:.2f} confidence{' ' * 16}│")
+                print(f" |  Correction Rate: {corr_rate:5.1f}%{' ' * 26}|")
+                print(f" |  Avg Improvement: +{avg_imp:.2f} confidence{' ' * 16}|")
 
-            print(" └" + "─" * 47 + "┘")
+            print(" +" + "-" * 47 + "+")
 
         print()
         print(f" Session saved to database (ID: {session.session_id})")
